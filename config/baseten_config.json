@@ -1,0 +1,10 @@
+{
+  "api_key": "${BASETEN_API_KEY}",
+  "model_id": "e3m0oe2q",
+  "base_url": "https://model-e3m0oe2q.api.baseten.co/environments/production/predict",
+  "max_text_length": 5000,
+  "rate_limit_per_minute": 60,
+  "retry_attempts": 3,
+  "timeout": 60,
+  "batch_size": 5
+}

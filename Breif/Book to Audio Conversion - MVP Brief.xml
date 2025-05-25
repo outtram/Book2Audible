@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project_brief>
+    <project_info>
+        <title>Book to Audio Conversion - MVP</title>
+        <date>2025-05-24</date>
+        <client_location>Bentleigh East, VIC, Australia</client_location>
+    </project_info>
+    <project_scope>
+        <description>Convert a 200,000-character book on ADHD into high-quality audio format using the Orpheus TTS model (Tara voice), hosted on Baseten. The output should be individual WAV files per chapter, with perfect pronunciation and seamless audio stitching. The book is written in Australian English, requiring attention to regional spelling and pronunciation.</description>
+        <deliverables>
+            <item>Individual WAV files per chapter, named sequentially (e.g., Chapter_01.wav)</item>
+            <item>High-quality, natural-sounding audio with accurate Australian English pronunciation (e.g., "prioritisation" not "prioritization")</item>
+            <item>Seamless audio output with no abrupt cuts or overlaps between stitched segments</item>
+            <item>Detailed log files tracking input text, API requests, and output audio for each chapter and chunk</item>
+        </deliverables>
+        <research>
+            <item>Use Baseten to host the Orpheus TTS model: https://www.baseten.co/blog/canopy-labs-selects-baseten-as-preferred-inference-provider-for-orpheus-tts-model/#benchmarking-real-time-speech-synthesis</item>
+            <item>Leverage example implementation code to accelerate development: https://github.com/canopyai/Orpheus-TTS/blob/main/additional_inference_options/baseten_inference_example/call_orpheus.py</item>
+        </research>
+    </project_scope>
+    <technical_requirements>
+        <text_to_speech>
+            <model>Orpheus TTS model (version 3b or latest stable release), hosted on Baseten</model>
+            <voice>Tara voice, configured for Australian English pronunciation</voice>
+            <output_format>WAV files, 44.1 kHz, 16-bit stereo for high quality</output_format>
+            <api_integration>Use Baseten’s API for real-time or batch audio generation, depending on chapter length</api_integration>
+        </text_to_speech>
+        <audio_handling>
+            <file_length_limitation>Research Baseten’s API limits for maximum text input per request or audio duration per file. If limits exist, implement text chunking at sentence boundaries.</file_length_limitation>
+            <splitting_stitching>Develop a solution to split long chapters into smaller text chunks (if needed) and stitch audio files seamlessly, ensuring no word cuts or pacing issues.</splitting_stitching>
+            <quality_assurance>Implement audio post-processing to smooth transitions between stitched segments and ensure consistent volume and pacing.</quality_assurance>
+        </audio_handling>
+        <text_processing>
+            <chapter_division>Automatically detect chapter breaks based on headings or manual input from the user.</chapter_division>
+            <text_preprocessing>Clean and format the text to remove artifacts that could affect TTS quality (e.g., extra spaces, special characters).</text_preprocessing>
+        </text_processing>
+    </technical_requirements>
+    <development_approach>
+        <user_stories>
+            <story>As a user, I want to upload my book text (in .txt or .docx format) and have the system automatically detect and process chapters.</story>
+            <story>As a user, I want the option to manually specify chapter breaks if automatic detection is insufficient.</story>
+            <story>As a user, I want high-quality audio that sounds natural, professional, and matches Australian English pronunciation.</story>
+            <story>As a user, I want the system to handle large text files efficiently, with progress tracking for long processing times.</story>
+            <story>As a user, I want detailed log files showing the input text, API requests, and output audio for each chapter and chunk, including verification of text-to-audio accuracy.</story>
+        </user_stories>
+        <testing_requirements>
+            <unit_tests>Test individual components (e.g., text chunking, API integration, audio stitching).</unit_tests>
+            <integration_tests>Test the end-to-end pipeline from text upload to audio file generation.</integration_tests>
+            <quality_tests>
+                <item>Use a speech-to-text (STT) tool (e.g., Whisper or Google STT) to transcribe the generated audio and compare it to the original text, ensuring accurate pronunciation and spelling (e.g., "prioritisation").</item>
+                <item>Verify that the audio is seamless, with no noticeable cuts or pacing issues between stitched segments.</item>
+                <item>Check audio quality parameters (e.g., sample rate, bit depth) to ensure they meet the specified standards.</item>
+            </quality_tests>
+            <performance_tests>Ensure the system can process the entire 200,000-character book within a reasonable time frame, optimizing for Baseten’s batch processing if needed.</performance_tests>
+        </testing_requirements>
+        <code_standards>
+            <programming_language>Python 3.9+ for compatibility with Baseten’s API and Orpheus TTS tools.</programming_language>
+            <structure>Modular code with clear separation of concerns (e.g., text processing, API integration, audio handling).</structure>
+            <documentation>Provide setup instructions, usage guides, and inline code comments for maintainability.</documentation>
+            <error_handling>Implement robust error handling for API rate limits, timeouts, and failures, with retry mechanisms where appropriate.</error_handling>
+            <version_control>Use Git for version control, with a clear branching strategy for development and testing.</version_control>
+        </code_standards>
+    </development_approach>
+    <deliverable_timeline>
+        <phase1 duration="1 week">Research Baseten API limitations (e.g., max text length per request, rate limits) and set up the development environment.</phase1>
+        <phase2 duration="2 weeks">Implement text processing, including chapter detection and chunking for long chapters.</phase2>
+        <phase3 duration="2 weeks">Integrate Baseten’s API for text-to-speech conversion, using the Tara voice and Australian English settings.</phase3>
+        <phase4 duration="1 week">Conduct thorough testing, including unit, integration, quality, and performance tests, with a focus on audio accuracy and seamlessness.</phase4>
+        <total_duration>6 weeks</total_duration>
+    </deliverable_timeline>
+    <additional_considerations>
+        <cost_management>Monitor Baseten’s usage costs, especially for batch processing large texts, and optimize API calls to stay within budget.</cost_management>
+        <future_enhancements>Plan for potential future features, such as support for multiple voices, different audio formats (e.g., MP3), or integration with other platforms.</future_enhancements>
+        <australian_english>Ensure the TTS model is configured for Australian English pronunciation, and test with region-specific terms.</australian_english>
+    </additional_considerations>
+</project_brief>
