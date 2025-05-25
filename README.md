@@ -24,6 +24,7 @@ python3 book2audible.py -i data/input/sample_adhd_book.txt
 - **Orpheus TTS**: Baseten-hosted with Tara voice
 - **Australian English**: Preserves colour, prioritise, analyse spellings
 - **Auto Chapters**: Detects chapter breaks automatically
+- **PDF Extraction**: Extract chapters from PDF books into text files
 - **High Quality**: 44.1kHz 16-bit stereo WAV
 - **Seamless Audio**: Perfect stitching, no cuts
 - **CLI Interface**: Easy command-line usage
@@ -36,6 +37,9 @@ python3 book2audible.py -i book.txt
 
 # Custom output
 python3 book2audible.py -i book.txt -o ./audiobook/
+
+# Extract chapters from PDF
+python3 book2audible.py --extract-pdf book.pdf -o ./extracted_chapters/
 
 # Manual chapters
 python3 book2audible.py -i book.txt -m "Chapter 1" -m "Chapter 2"

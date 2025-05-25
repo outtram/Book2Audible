@@ -8,3 +8,4 @@ click>=8.1.7
 tqdm>=4.66.1
 colorama>=0.4.6
 chardet>=5.0.0
+PyMuPDF>=1.23.0

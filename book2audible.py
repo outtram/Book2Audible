@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 
 from src.core.processor import Book2AudioProcessor
 from src.core.config import config
+from src.core.pdf_extractor import extract_pdf_chapters
 from src.utils.logger import setup_logger
 
 @click.command()
@@ -30,9 +31,11 @@ from src.utils.logger import setup_logger
               help='Test Baseten API connection and exit')
 @click.option('--validate-config', is_flag=True,
               help='Validate configuration and exit')
+@click.option('--extract-pdf', 'pdf_file', type=click.Path(exists=True),
+              help='Extract chapters from PDF file and exit')
 def main(input_file: str, output_dir: Optional[str], voice: str,
          manual_chapters: List[str], log_level: str, 
-         test_connection: bool, validate_config: bool):
+         test_connection: bool, validate_config: bool, pdf_file: Optional[str]):
     """
     Book2Audible - Convert text books to audiobooks using Orpheus TTS
     
@@ -40,6 +43,7 @@ def main(input_file: str, output_dir: Optional[str], voice: str,
         book2audible -i book.txt
         book2audible -i book.docx -o ./audio_output
         book2audible -i book.txt -m "Chapter 1" -m "Chapter 2"
+        book2audible --extract-pdf book.pdf -o ./extracted_chapters
         book2audible --test-connection
     """
     
@@ -69,9 +73,14 @@ def main(input_file: str, output_dir: Optional[str], voice: str,
                 sys.exit(1)
             return
         
+        if pdf_file:
+            click.echo("📄 Extracting chapters from PDF...")
+            _extract_pdf_chapters(pdf_file, output_dir, log_level)
+            return
+        
         # Validate inputs (only required if not using special flags)
         if not input_file:
-            click.echo("❌ Error: Missing option '--input' / '-i'. Required when not using --test-connection or --validate-config.")
+            click.echo("❌ Error: Missing option '--input' / '-i'. Required when not using --test-connection, --validate-config, or --extract-pdf.")
             sys.exit(1)
             
         input_path = Path(input_file)
@@ -158,6 +167,40 @@ def _validate_configuration():
         sys.exit(1)
     else:
         click.echo("\n✅ All configuration checks passed!")
+
+def _extract_pdf_chapters(pdf_file: str, output_dir: Optional[str], log_level: str):
+    """Extract chapters from PDF file"""
+    pdf_path = Path(pdf_file)
+    
+    # Set output directory
+    if output_dir:
+        output_path = Path(output_dir)
+    else:
+        output_path = Path.cwd() / "extracted_chapters"
+    
+    click.echo(f"📄 PDF: {pdf_path}")
+    click.echo(f"📁 Output: {output_path}")
+    
+    try:
+        # Extract chapters
+        stats = extract_pdf_chapters(pdf_path, output_path, log_level)
+        
+        # Display results
+        click.echo("\n" + "=" * 50)
+        click.echo("✅ PDF extraction completed!")
+        click.echo(f"📊 Chapters extracted: {stats['total_chapters']}")
+        click.echo(f"📝 Total words: {stats['total_words']:,}")
+        click.echo(f"📄 Total pages: {stats['total_pages']}")
+        click.echo(f"📁 Files saved to: {output_path / 'chapters'}")
+        
+        # Show chapter breakdown
+        click.echo("\n📋 Extracted chapters:")
+        for chapter in stats['chapters']:
+            click.echo(f"  • {chapter['filename']}.txt ({chapter['word_count']} words)")
+            
+    except Exception as e:
+        click.echo(f"❌ PDF extraction failed: {e}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
