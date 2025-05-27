@@ -1,5 +1,5 @@
 {
-  "api_key": "${FAL_KEY}",
+  "api_key": "3a0944ca-c2f0-48cb-af47-27da4a13d7cb:a981becfa15723a9187cf2d1854e60ff",
   "model_id": "fal-ai/orpheus-tts",
   "timeout": 120,
   "retry_attempts": 3,

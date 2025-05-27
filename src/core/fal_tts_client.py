@@ -70,8 +70,7 @@ class FalTTSClient:
                 start_time = time.time()
                 result = fal_client.subscribe(
                     self.model_id,
-                    arguments=arguments,
-                    timeout=dynamic_timeout
+                    arguments=arguments
                 )
                 
                 generation_time = time.time() - start_time
@@ -81,7 +80,15 @@ class FalTTSClient:
                 if not result or 'audio' not in result:
                     raise Exception(f"Invalid response from Fal.ai API: {result}")
                 
-                audio_url = result['audio']
+                audio_info = result['audio']
+                # Handle both string URL and dict response formats
+                if isinstance(audio_info, str):
+                    audio_url = audio_info
+                elif isinstance(audio_info, dict) and 'url' in audio_info:
+                    audio_url = audio_info['url']
+                else:
+                    raise Exception(f"Unexpected audio format in response: {audio_info}")
+                
                 self.logger.debug(f"Audio URL received: {audio_url}")
                 
                 # Download the audio file
