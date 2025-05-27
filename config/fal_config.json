@@ -1,0 +1,29 @@
+{
+  "api_key": "${FAL_KEY}",
+  "model_id": "fal-ai/orpheus-tts",
+  "timeout": 120,
+  "retry_attempts": 3,
+  "rate_limit_per_minute": 120,
+  "base_url": "https://fal.run/fal-ai/orpheus-tts",
+  "pricing_per_1000_chars": 0.05,
+  "supported_voices": [
+    "tara",
+    "leah", 
+    "jess",
+    "leo",
+    "dan",
+    "mia",
+    "zac",
+    "zoe"
+  ],
+  "emotional_tags": [
+    "<laugh>",
+    "<chuckle>",
+    "<sigh>",
+    "<cough>",
+    "<sniffle>",
+    "<groan>",
+    "<yawn>",
+    "<gasp>"
+  ]
+}

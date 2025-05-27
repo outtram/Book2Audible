@@ -10,3 +10,4 @@ colorama>=0.4.6
 chardet>=5.0.0
 PyMuPDF>=1.23.0
 playwright>=1.40.0
+fal-client>=0.7.0

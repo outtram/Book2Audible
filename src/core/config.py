@@ -21,6 +21,7 @@ class Config:
         
         # Load configurations
         self.baseten_config = self._load_json_config("baseten_config.json")
+        self.fal_config = self._load_json_config("fal_config.json")
         self.tts_settings = self._load_json_config("tts_settings.json")
         
         # Process environment variables
@@ -61,6 +62,7 @@ class Config:
         self.audio_quality = os.getenv("AUDIO_QUALITY", "high")
         self.enable_quality_check = os.getenv("ENABLE_QUALITY_CHECK", "true").lower() == "true"
         self.stt_model = os.getenv("STT_MODEL", "whisper")
+        self.tts_provider = os.getenv("TTS_PROVIDER", "baseten")  # Default to baseten, can be "fal"
         
     @property
     def baseten_api_key(self) -> str:
@@ -71,6 +73,11 @@ class Config:
     def model_id(self) -> str:
         """Get TTS model ID"""
         return self.baseten_config.get("model_id", "e3m0oe2q")
+    
+    @property
+    def fal_api_key(self) -> str:
+        """Get Fal.ai API key"""
+        return self.fal_config.get("api_key", "")
 
 # Global configuration instance
 config = Config()

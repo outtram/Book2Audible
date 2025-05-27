@@ -33,9 +33,13 @@ from src.utils.logger import setup_logger
               help='Validate configuration and exit')
 @click.option('--extract-pdf', 'pdf_file', type=click.Path(exists=True),
               help='Extract chapters from PDF file and exit')
+@click.option('--provider', '-p', default='baseten',
+              type=click.Choice(['baseten', 'fal']),
+              help='TTS provider to use (default: baseten)')
 def main(input_file: str, output_dir: Optional[str], voice: str,
          manual_chapters: List[str], log_level: str, 
-         test_connection: bool, validate_config: bool, pdf_file: Optional[str]):
+         test_connection: bool, validate_config: bool, pdf_file: Optional[str],
+         provider: str):
     """
     Book2Audible - Convert text books to audiobooks using Orpheus TTS
     
@@ -43,6 +47,7 @@ def main(input_file: str, output_dir: Optional[str], voice: str,
         book2audible -i book.txt
         book2audible -i book.docx -o ./audio_output
         book2audible -i book.txt -m "Chapter 1" -m "Chapter 2"
+        book2audible -i book.txt -p fal  # Use Fal.ai provider
         book2audible --extract-pdf book.pdf -o ./extracted_chapters
         book2audible --test-connection
     """
@@ -56,7 +61,7 @@ def main(input_file: str, output_dir: Optional[str], voice: str,
     
     try:
         # Initialize processor
-        processor = Book2AudioProcessor(log_level)
+        processor = Book2AudioProcessor(log_level, provider)
         
         # Handle special flags
         if validate_config:
@@ -65,7 +70,8 @@ def main(input_file: str, output_dir: Optional[str], voice: str,
             return
             
         if test_connection:
-            click.echo("🔌 Testing Baseten API connection...")
+            provider_name = "Fal.ai" if provider == "fal" else "Baseten"
+            click.echo(f"🔌 Testing {provider_name} API connection...")
             if processor.tts_client.test_connection():
                 click.echo("✅ Connection successful!")
             else:
@@ -95,9 +101,11 @@ def main(input_file: str, output_dir: Optional[str], voice: str,
             output_path = config.output_dir
         
         # Display processing info
+        provider_name = "Fal.ai" if provider == "fal" else "Baseten"
         click.echo(f"📖 Input: {input_path}")
         click.echo(f"🎵 Output: {output_path}")
         click.echo(f"🗣️ Voice: {voice}")
+        click.echo(f"🤖 Provider: {provider_name}")
         
         if manual_chapters:
             click.echo(f"📑 Manual chapters: {len(manual_chapters)}")

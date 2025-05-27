@@ -11,6 +11,7 @@ from tqdm import tqdm
 from .config import config
 from .text_processor import TextProcessor, Chapter
 from .tts_client import BaseTenTTSClient
+from .fal_tts_client import FalTTSClient
 from .audio_processor import AudioProcessor
 from .audio_verifier import AudioVerifier
 from .audio_file_verifier import AudioFileVerifier
@@ -22,20 +23,29 @@ from ..utils.logger import setup_logger
 class Book2AudioProcessor:
     """Main processor orchestrating the text-to-audio conversion"""
     
-    def __init__(self, log_level: str = "INFO"):
+    def __init__(self, log_level: str = "INFO", tts_provider: str = None):
         # Setup logging
         self.logger = setup_logger("Book2Audio", config.log_file, log_level)
         
         # Initialize components
         self.text_processor = TextProcessor()
-        self.tts_client = BaseTenTTSClient()
+        
+        # Initialize TTS client based on provider
+        self.tts_provider = tts_provider or config.tts_provider
+        if self.tts_provider.lower() == "fal":
+            self.tts_client = FalTTSClient()
+            self.logger.info("Using Fal.ai TTS provider")
+        else:
+            self.tts_client = BaseTenTTSClient()
+            self.logger.info("Using Baseten TTS provider")
+        
         self.audio_processor = AudioProcessor()
         self.audio_verifier = AudioVerifier()
         self.audio_file_verifier = AudioFileVerifier()
         self.buffer_manager = BufferManager(self.tts_client, self.audio_processor)
         self.file_handler = FileHandler()
         
-        self.logger.info("Book2Audio processor initialized")
+        self.logger.info(f"Book2Audio processor initialized with {self.tts_provider} provider")
     
     def process_book(self, input_file: Path, output_dir: Path = None, 
                      manual_chapters: List[str] = None) -> Dict[str, Any]:
