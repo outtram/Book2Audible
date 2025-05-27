@@ -55,7 +55,7 @@ class Config:
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
         self.log_file = self.project_root / os.getenv("LOG_FILE", "data/logs/book2audible.log")
         self.max_concurrent_requests = int(os.getenv("MAX_CONCURRENT_REQUESTS", "3"))
-        self.chunk_size = int(os.getenv("CHUNK_SIZE", "4000"))
+        self.chunk_size = int(os.getenv("CHUNK_SIZE", "1000"))
         self.output_dir = self.project_root / os.getenv("OUTPUT_DIR", "data/output")
         self.input_dir = self.project_root / os.getenv("INPUT_DIR", "data/input")
         self.audio_quality = os.getenv("AUDIO_QUALITY", "high")

@@ -8,6 +8,18 @@
   "speed": 1.0,
   "pitch": 1.0,
   "volume": 1.0,
+  "temperature": 0.4,
+  "top_p": 0.9,
+  "repetition_penalty": 1.1,
   "normalize_audio": true,
-  "fade_duration": 50
+  "fade_duration": 50,
+  "enable_verification": true,
+  "verification_threshold": 0.85,
+  "whisper_model_size": "small",
+  "chunk_size": 150,
+  "chunk_delay": 2,
+  "verification_timeout": 120,
+  "chunk_timeout": 120,
+  "extended_timeout": 180,
+  "enable_buffers": false
 }

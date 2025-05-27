@@ -35,10 +35,13 @@ class BaseTenTTSClient:
         
         voice = voice or config.tts_settings.get("voice", "tara")
         
-        # Match exact Baseten API format
+        # Match exact Baseten API format with LLM generation parameters
         payload = {
             "voice": voice,
-            "prompt": text
+            "prompt": text,
+            "temperature": config.tts_settings.get("temperature", 0.7),
+            "top_p": config.tts_settings.get("top_p", 0.9),
+            "repetition_penalty": config.tts_settings.get("repetition_penalty", 1.1)
         }
         
         headers = {
@@ -51,11 +54,17 @@ class BaseTenTTSClient:
                 self.logger.info(f"Generating audio for text chunk (attempt {attempt + 1}/{self.retry_attempts})")
                 self.logger.debug(f"Text length: {len(text)} characters")
                 
+                # Dynamic timeout based on text length
+                dynamic_timeout = max(self.timeout, len(text) * 0.5)  # 0.5 seconds per character minimum
+                dynamic_timeout = min(dynamic_timeout, 300)  # Cap at 5 minutes
+                
+                self.logger.debug(f"Using timeout: {dynamic_timeout}s for {len(text)} character text")
+                
                 response = requests.post(
                     self.base_url,
                     json=payload,
                     headers=headers,
-                    timeout=self.timeout
+                    timeout=dynamic_timeout
                 )
                 
                 if response.status_code == 200:
@@ -95,17 +104,35 @@ class BaseTenTTSClient:
                     if attempt == self.retry_attempts - 1:
                         response.raise_for_status()
                         
-            except requests.exceptions.Timeout:
-                self.logger.warning(f"Request timeout (attempt {attempt + 1}/{self.retry_attempts})")
-                if attempt == self.retry_attempts - 1:
-                    raise
-                time.sleep(2 ** attempt)
+            except requests.exceptions.Timeout as e:
+                timeout_msg = f"Request timeout after {dynamic_timeout if 'dynamic_timeout' in locals() else self.timeout}s (attempt {attempt + 1}/{self.retry_attempts})"
+                self.logger.warning(timeout_msg)
+                
+                # Exponential backoff with jitter
+                if attempt < self.retry_attempts - 1:
+                    backoff_time = (2 ** attempt) + (attempt * 2)  # More aggressive backoff
+                    self.logger.info(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                else:
+                    self.logger.error(f"All retry attempts failed due to timeout. Text length: {len(text)} chars")
+                    raise TimeoutError(f"TTS generation failed after {self.retry_attempts} attempts: {str(e)}")
                 
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"Request failed: {e}")
-                if attempt == self.retry_attempts - 1:
+                
+                # Different handling for different error types
+                if "connection" in str(e).lower():
+                    self.logger.warning("Connection error detected - using longer backoff")
+                    backoff_time = (2 ** attempt) * 3
+                else:
+                    backoff_time = 2 ** attempt
+                
+                if attempt < self.retry_attempts - 1:
+                    self.logger.info(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                else:
+                    self.logger.error(f"All retry attempts exhausted. Final error: {str(e)}")
                     raise
-                time.sleep(2 ** attempt)
         
         raise Exception("All retry attempts failed")
     

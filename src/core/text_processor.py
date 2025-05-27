@@ -9,6 +9,11 @@ from pathlib import Path
 
 # Download required NLTK data
 try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt_tab')
+    
+try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
     nltk.download('punkt')
@@ -27,6 +32,9 @@ class TextProcessor:
     """Handles text processing, chapter detection, and cleaning"""
     
     def __init__(self):
+        import logging
+        self.logger = logging.getLogger(__name__)
+        
         self.chapter_patterns = [
             r'^Chapter\s+(\d+)[\.\:\-\s]*(.*)$',
             r'^CHAPTER\s+(\d+)[\.\:\-\s]*(.*)$',
@@ -89,6 +97,31 @@ class TextProcessor:
             current_chapter.word_count = len(chapter_content.split())
             chapters.append(current_chapter)
         
+        # If no chapters were detected, treat entire text as single chapter
+        if not chapters and text.strip():
+            # Use first line as title if available, otherwise use filename-based title
+            lines = text.strip().split('\n')
+            first_line = lines[0].strip() if lines else "Content"
+            
+            # If first line looks like a title (short and not ending with period), use it
+            if len(first_line) < 100 and not first_line.endswith('.'):
+                title = first_line
+                # Include the title in the content so it gets read aloud
+                content = text.strip()
+            else:
+                title = "Audio Content"
+                content = text.strip()
+            
+            single_chapter = Chapter(
+                number=1,
+                title=title,
+                content=content,
+                start_position=0,
+                end_position=len(text),
+                word_count=len(content.split())
+            )
+            chapters.append(single_chapter)
+        
         return chapters
 
     def _is_chapter_heading(self, line: str) -> Optional[Tuple[int, str]]:
@@ -105,21 +138,45 @@ class TextProcessor:
         return None
     
     def clean_text(self, text: str) -> str:
-        """Clean text for TTS processing"""
-        # Remove excessive whitespace
+        """Aggressively clean text for TTS processing to prevent hallucinations"""
+        # Normalize quotes - replace smart quotes with regular quotes
+        text = re.sub(r'[""''„"«»]', '"', text)
+        
+        # Normalize dashes - replace em-dashes and en-dashes with hyphens
+        text = re.sub(r'[–—]', '-', text)
+        
+        # Fix ellipsis - replace multiple dots with single period
+        text = re.sub(r'\.{2,}', '.', text)
+        
+        # Remove orphaned punctuation and fix spacing
+        text = re.sub(r'\s+([,.!?;:])', r'\1', text)  # Remove space before punctuation
+        text = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', text)  # Ensure space after sentence end
+        
+        # Normalize whitespace - remove double spaces and normalize to single spaces
         text = re.sub(r'\s+', ' ', text)
         
+        # Remove special characters that confuse TTS
+        text = re.sub(r'[^\w\s.,!?;:()\'-]', '', text)
+        
         # Fix common formatting issues
-        text = re.sub(r'([.!?])\s*([A-Z])', r'\1 \2', text)
+        text = re.sub(r'\(\s+', '(', text)  # Fix "( text" to "(text"
+        text = re.sub(r'\s+\)', ')', text)  # Fix "text )" to "text)"
         
         # Preserve Australian English spellings
         for us_spelling, au_spelling in self.au_spellings.items():
             text = re.sub(r'\b' + us_spelling + r'\b', au_spelling, text, flags=re.IGNORECASE)
         
-        return text.strip()
+        # Final cleanup
+        text = text.strip()
+        
+        # Ensure text ends with proper punctuation
+        if text and not text[-1] in '.!?':
+            text += '.'
+            
+        return text
     
-    def chunk_long_text(self, text: str, max_length: int = 4000) -> List[str]:
-        """Split long text into chunks at sentence boundaries"""
+    def chunk_long_text(self, text: str, max_length: int = 150) -> List[str]:
+        """Split text at sentence boundaries ONLY - never mid-sentence to prevent hallucinations"""
         if len(text) <= max_length:
             return [text]
         
@@ -127,15 +184,80 @@ class TextProcessor:
         chunks = []
         current_chunk = ""
         
-        for sentence in sentences:
-            if len(current_chunk + sentence) <= max_length:
-                current_chunk += sentence + " "
+        for i, sentence in enumerate(sentences):
+            # Always keep complete sentences together
+            if not current_chunk:
+                # Starting new chunk
+                current_chunk = sentence
+            elif len(current_chunk + " " + sentence) <= max_length:
+                # Add sentence to current chunk
+                current_chunk += " " + sentence
             else:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence + " "
+                # Current chunk is full, save it and start new one
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
         
-        if current_chunk:
+        # Don't forget the last chunk
+        if current_chunk.strip():
             chunks.append(current_chunk.strip())
+        
+        # If any single sentence is longer than max_length, keep it as its own chunk
+        # (Don't split mid-sentence as this causes hallucinations)
+        final_chunks = []
+        for chunk in chunks:
+            if len(chunk) > max_length:
+                # Log warning but keep the long sentence intact
+                self.logger.warning(f"Sentence too long ({len(chunk)} chars) but keeping intact to prevent hallucinations")
+            final_chunks.append(chunk)
+        
+        return final_chunks
+    
+    def _split_long_sentence(self, sentence: str, max_length: int) -> List[str]:
+        """Split a very long sentence at natural break points"""
+        if len(sentence) <= max_length:
+            return [sentence]
+        
+        # Try to split at natural breakpoints: comma, semicolon, dash, parentheses
+        break_patterns = [', ', '; ', ' - ', ' – ', ' (', ') ']
+        
+        for pattern in break_patterns:
+            if pattern in sentence:
+                parts = sentence.split(pattern)
+                chunks = []
+                current = ""
+                
+                for i, part in enumerate(parts):
+                    # Restore the break pattern (except for last part)
+                    restored_part = part + (pattern if i < len(parts) - 1 else "")
+                    
+                    if len(current + restored_part) <= max_length:
+                        current += restored_part
+                    else:
+                        if current:
+                            chunks.append(current.strip())
+                        current = restored_part
+                
+                if current:
+                    chunks.append(current.strip())
+                
+                # If we successfully split, return the chunks
+                if len(chunks) > 1:
+                    return chunks
+        
+        # If no natural breakpoints, split by words as last resort
+        words = sentence.split()
+        chunks = []
+        current = ""
+        
+        for word in words:
+            if len(current + word + " ") <= max_length:
+                current += word + " "
+            else:
+                if current:
+                    chunks.append(current.strip())
+                current = word + " "
+        
+        if current:
+            chunks.append(current.strip())
         
         return chunks

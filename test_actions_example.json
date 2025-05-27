@@ -1,0 +1,8 @@
+[
+  {"type": "wait", "seconds": 2},
+  {"type": "click", "selector": "button"},
+  {"type": "fill", "selector": "input[type=text]", "text": "Test input"},
+  {"type": "check_text", "text": "Expected text on page"},
+  {"type": "scroll"},
+  {"type": "wait", "seconds": 1}
+]

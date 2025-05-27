@@ -38,8 +38,18 @@ class AudioProcessor:
         audio_segments = []
         for i, chunk in enumerate(audio_chunks):
             try:
-                # Create temporary file-like object
-                segment = AudioSegment.from_wav(io.BytesIO(chunk))
+                # Check if chunk is raw PCM or WAV format
+                if chunk.startswith(b'RIFF'):
+                    # Already WAV format
+                    segment = AudioSegment.from_wav(io.BytesIO(chunk))
+                else:
+                    # Raw PCM data - convert to AudioSegment
+                    segment = AudioSegment(
+                        data=chunk,
+                        sample_width=self.bit_depth // 8,  # Convert bits to bytes
+                        frame_rate=self.sample_rate,
+                        channels=self.channels
+                    )
                 
                 # Apply fade in/out to prevent clicks
                 if i > 0:  # Fade in for all but first chunk
