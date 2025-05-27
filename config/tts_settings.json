@@ -18,8 +18,8 @@
   "whisper_model_size": "small",
   "chunk_size": 150,
   "chunk_delay": 2,
-  "verification_timeout": 120,
-  "chunk_timeout": 120,
-  "extended_timeout": 180,
+  "verification_timeout": 180,
+  "chunk_timeout": 240,
+  "extended_timeout": 300,
   "enable_buffers": false
 }
