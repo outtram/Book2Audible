@@ -11,3 +11,7 @@ chardet>=5.0.0
 PyMuPDF>=1.23.0
 playwright>=1.40.0
 fal-client>=0.7.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+websockets>=11.0.3

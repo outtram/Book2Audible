@@ -11,8 +11,18 @@
       "Bash(find:*)",
       "Bash(rg:*)",
       "Bash(grep:*)",
-      "WebFetch(domain:fal.ai)"
+      "WebFetch(domain:fal.ai)",
+      "Bash(mkdir:*)",
+      "Bash(chmod:*)",
+      "Bash(timeout:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(gtimeout:*)",
+      "Bash(npx vite:*)",
+      "Bash(curl:*)",
+      "Bash(source:*)"
     ],
     "deny": []
-  }
+  },
+  "enableAllProjectMcpServers": false
 }
