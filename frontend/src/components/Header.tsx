@@ -40,9 +40,14 @@ export const Header: React.FC = () => {
           >
             Convert
           </Link>
-          <a className="text-primary-700 text-sm font-medium leading-normal" href="#">
+          <Link 
+            to="/help" 
+            className={`text-sm font-medium leading-normal ${ 
+              location.pathname === '/help' ? 'text-primary-600' : 'text-primary-700'
+            }`}
+          >
             Help
-          </a>
+          </Link>
         </div>
         <Link
           to="/upload"

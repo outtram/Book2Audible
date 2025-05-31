@@ -49,6 +49,11 @@ export const testConnection = async (): Promise<{ fal: any; baseten: any }> => {
   return response.data;
 };
 
+export const getUploadInfo = async (jobId: string): Promise<any> => {
+  const response = await api.get(`/upload/${jobId}`);
+  return response.data;
+};
+
 export const downloadAllChapters = (jobId: string): string => {
   return `${API_BASE}/download/${jobId}`;
 };

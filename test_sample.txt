@@ -1,0 +1,9 @@
+This is a test chapter for Book2Audible conversion.
+
+Chapter 1: Introduction
+
+This is a simple test text to verify that the conversion process works correctly. The text should be processed by the system and converted to audio using the Fal.ai TTS service.
+
+The system should detect this as a chapter and process it accordingly. This text is short enough to test quickly but long enough to verify the full pipeline works.
+
+End of test chapter.

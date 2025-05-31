@@ -30,14 +30,15 @@ class Book2AudioProcessor:
         # Initialize components
         self.text_processor = TextProcessor()
         
-        # Initialize TTS client based on provider
-        self.tts_provider = tts_provider or config.tts_provider
+        # Initialize TTS client based on provider - default to Fal.ai
+        self.tts_provider = tts_provider or "fal"
         if self.tts_provider.lower() == "fal":
             self.tts_client = FalTTSClient()
             self.logger.info("Using Fal.ai TTS provider")
         else:
-            self.tts_client = BaseTenTTSClient()
-            self.logger.info("Using Baseten TTS provider")
+            # Fallback to Fal.ai if unknown provider
+            self.tts_client = FalTTSClient()
+            self.logger.info("Unknown provider, defaulting to Fal.ai TTS provider")
         
         self.audio_processor = AudioProcessor()
         self.audio_verifier = AudioVerifier()

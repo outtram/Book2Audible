@@ -62,7 +62,7 @@ class Config:
         self.audio_quality = os.getenv("AUDIO_QUALITY", "high")
         self.enable_quality_check = os.getenv("ENABLE_QUALITY_CHECK", "true").lower() == "true"
         self.stt_model = os.getenv("STT_MODEL", "whisper")
-        self.tts_provider = os.getenv("TTS_PROVIDER", "baseten")  # Default to baseten, can be "fal"
+        self.tts_provider = os.getenv("TTS_PROVIDER", "fal")  # Default to fal
         
     @property
     def baseten_api_key(self) -> str:

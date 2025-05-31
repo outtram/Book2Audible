@@ -174,6 +174,25 @@ class FalTTSClient:
         except Exception as e:
             self.logger.error(f"❌ Fal.ai API connection test failed: {e}")
             return False
+
+    def test_connection_detailed(self) -> dict:
+        """Test API connection with detailed error reporting"""
+        try:
+            self.logger.info("Testing Fal.ai API connection...")
+            test_audio = self.generate_audio("Test connection.", "tara")
+            
+            if len(test_audio) > 1000:  # Valid audio should be larger than 1KB
+                self.logger.info("✅ Fal.ai API connection test successful")
+                return {"success": True, "error": None}
+            else:
+                error_msg = "Audio response too small (less than 1KB)"
+                self.logger.error(f"❌ Fal.ai API test failed: {error_msg}")
+                return {"success": False, "error": error_msg}
+                
+        except Exception as e:
+            error_msg = str(e)
+            self.logger.error(f"❌ Fal.ai API connection test failed: {error_msg}")
+            return {"success": False, "error": error_msg}
     
     def get_available_voices(self) -> List[str]:
         """Get list of available voices"""

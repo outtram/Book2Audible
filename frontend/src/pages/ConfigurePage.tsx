@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { startConversion, getProviders, getVoices, testConnection } from '../utils/api';
+import { startConversion, getProviders, getVoices, testConnection, getUploadInfo } from '../utils/api';
 import { Settings, Mic, Zap, AlertCircle, CheckCircle } from 'lucide-react';
 import type { Provider } from '../types';
 
@@ -16,11 +16,28 @@ export const ConfigurePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<{ fal: any; baseten: any } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [uploadInfo, setUploadInfo] = useState<any>(null);
+  const [loadingUploadInfo, setLoadingUploadInfo] = useState(true);
 
   useEffect(() => {
     loadConfiguration();
     testConnections();
+    loadUploadInfo();
   }, []);
+
+  const loadUploadInfo = async () => {
+    if (!jobId) return;
+    
+    try {
+      setLoadingUploadInfo(true);
+      const info = await getUploadInfo(jobId);
+      setUploadInfo(info);
+    } catch (err: any) {
+      console.error('Failed to load upload info:', err);
+    } finally {
+      setLoadingUploadInfo(false);
+    }
+  };
 
   const loadConfiguration = async () => {
     try {
@@ -88,6 +105,40 @@ export const ConfigurePage: React.FC = () => {
         <h2 className="text-primary-700 tracking-light text-[28px] font-bold leading-tight px-4 text-center pb-3 pt-5">
           Customize your audiobook
         </h2>
+
+        {/* Book Information */}
+        {!loadingUploadInfo && uploadInfo && (
+          <div className="flex flex-col p-4 mb-4">
+            <div className="bg-primary-50 rounded-lg border border-primary-200 p-4">
+              <h3 className="text-sm font-medium text-primary-700 mb-3 flex items-center gap-2">
+                <Settings className="h-4 w-4" />
+                Book Information
+              </h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-primary-600">File:</span>
+                  <span className="text-primary-700 font-medium">{uploadInfo.filename}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-primary-600">Size:</span>
+                  <span className="text-primary-700">{(uploadInfo.file_size / 1024).toFixed(1)} KB</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-primary-600">Characters:</span>
+                  <span className="text-primary-700">{uploadInfo.character_count.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-primary-600">Words:</span>
+                  <span className="text-primary-700">{uploadInfo.word_count.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-primary-600">Estimated Cost:</span>
+                  <span className="text-primary-700 font-medium">${uploadInfo.estimated_cost_fal}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Provider Selection */}
         <div className="flex flex-col p-4">
@@ -180,14 +231,28 @@ export const ConfigurePage: React.FC = () => {
                 <Settings className="h-4 w-4" />
                 Connection Status
               </h4>
-              <div className="space-y-1 text-xs">
-                <div className="flex items-center justify-between">
+              <div className="space-y-2 text-xs">
+                <div className="flex items-start justify-between">
                   <span>Fal.ai:</span>
-                  <div className="flex items-center gap-1">
-                    {getConnectionIcon(connectionStatus.fal)}
-                    <span className={connectionStatus.fal?.status === 'success' ? 'text-green-600' : 'text-red-600'}>
-                      {connectionStatus.fal?.status || 'unknown'}
-                    </span>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-1">
+                      {getConnectionIcon(connectionStatus.fal)}
+                      <span className={connectionStatus.fal?.status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                        {connectionStatus.fal?.status || 'unknown'}
+                      </span>
+                    </div>
+                    {connectionStatus.fal?.message && (
+                      <div className="text-right text-red-600 max-w-xs">
+                        <p className="break-words">{connectionStatus.fal.message}</p>
+                        {connectionStatus.fal.message.includes('Exhausted balance') && (
+                          <p className="mt-1 text-blue-600">
+                            <a href="https://fal.ai/dashboard/billing" target="_blank" rel="noopener noreferrer" className="underline">
+                              Top up balance →
+                            </a>
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

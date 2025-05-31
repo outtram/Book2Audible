@@ -20,7 +20,9 @@
       "Bash(gtimeout:*)",
       "Bash(npx vite:*)",
       "Bash(curl:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "Bash(pkill:*)",
+      "Bash(kill:*)"
     ],
     "deny": []
   },
