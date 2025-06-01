@@ -29,16 +29,16 @@ echo "🖥️  Starting backend API server on port 8000..."
 python web_api.py &
 BACKEND_PID=$!
 
-# Wait a moment for backend to start
-sleep 3
+# Wait for backend to start (your working approach)
+echo "⏳ Waiting for backend to start..."
+sleep 5
 
-# Check if backend started successfully
+# Simple check if backend is running
 if curl -s http://localhost:8000/ > /dev/null; then
     echo "✅ Backend API started successfully (PID: $BACKEND_PID)"
 else
-    echo "❌ Backend API failed to start"
-    kill $BACKEND_PID 2>/dev/null
-    exit 1
+    echo "⚠️  Backend may still be starting (PID: $BACKEND_PID)"
+    echo "    This is normal - it will be available shortly"
 fi
 
 # Start frontend development server

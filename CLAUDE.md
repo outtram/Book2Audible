@@ -72,6 +72,16 @@ The system has evolved well beyond the original MVP into a full-featured product
 - **Dual TTS Providers**: Fal.ai primary, Baseten fallback
 - **Audio Quality**: 24kHz, 16-bit mono WAV optimized for speech
 
+### ✅ Advanced Chunk Management (NEW!)
+- **Individual Chunk Reprocessing**: Fix audio glitches without reprocessing entire chapters
+- **Cost-Effective**: ~94% cost reduction (reprocess 3 chunks vs 50 chunks)
+- **Database Tracking**: SQLite database tracks all chunks with metadata
+- **Selective Audio Stitching**: Exclude problematic chunks or use reprocessed versions
+- **Chunk Insertion**: Add new text chunks at any position within chapters
+- **Quality Analysis**: Automatic identification of chunks needing attention
+- **CLI Tools**: Command-line interface for all chunk operations
+- **Web Interface**: Full web UI for chunk management and reprocessing
+
 ### ✅ Web Interface
 - **Modern React UI**: TypeScript, Tailwind CSS, responsive design
 - **File Upload**: Drag-and-drop interface for PDF/TXT files
@@ -79,6 +89,9 @@ The system has evolved well beyond the original MVP into a full-featured product
 - **Configuration**: Voice settings, provider selection, quality options
 - **Results Management**: Audio playback, individual chapter downloads, ZIP exports
 - **Job Resume**: Continue failed or interrupted processing jobs
+- **Chapter Management**: Two-tab interface for processed jobs and tracked chapters
+- **Chunk Management UI**: Interactive interface for individual chunk reprocessing
+- **Visual Quality Indicators**: Color-coded status and accuracy scores for all chunks
 
 ### ✅ Advanced Verification
 - **Whisper Integration**: Automatic transcription of generated audio
@@ -93,6 +106,13 @@ The system has evolved well beyond the original MVP into a full-featured product
 - **Connection Testing**: `python book2audible.py --test-connection`
 - **Provider Selection**: Support for both fal.ai and Baseten APIs
 - **Resume Jobs**: Continue processing from interruption points
+- **Chunk Management CLI**: `python chunk_cli.py` with full chunk operations
+  - `list-chapters` - View all tracked chapters
+  - `chapter-status <id>` - Detailed chunk status
+  - `reprocess-chunk <id>` - Fix individual chunks
+  - `reprocess-failed <id>` - Batch reprocess problematic chunks
+  - `restitch <id>` - Rebuild chapter audio with exclusions
+  - `insert-chunk <id> <pos> "<text>"` - Add new chunks
 
 ### ✅ Production Features
 - **Comprehensive Logging**: Detailed processing and verification logs
@@ -139,15 +159,18 @@ The system has evolved well beyond the original MVP into a full-featured product
 ### Web Interface
 ```bash
 # Start full application (backend + frontend)
-./start_web.sh
+./start_all.sh
 
 # Access at http://localhost:3000
 # Backend API at http://localhost:8000
+
+# Navigate to Chapters page for chunk management
+# Click "Manage Chunks" on any tracked chapter
 ```
 
 ### CLI Processing
 ```bash
-# Basic usage
+# Basic usage with chunk tracking
 python book2audible.py -i book.pdf -p fal
 
 # With verification
@@ -158,6 +181,29 @@ python book2audible.py --extract-pdf book.pdf
 
 # Test API connection
 python book2audible.py --test-connection --provider fal
+```
+
+### Chunk Management (CLI)
+```bash
+# View all tracked chapters
+python chunk_cli.py list-chapters
+
+# Check specific chapter status
+python chunk_cli.py chapter-status 3
+
+# Fix individual problematic chunks (COST EFFECTIVE!)
+python chunk_cli.py reprocess-chunk 15
+python chunk_cli.py reprocess-chunk 22
+
+# Batch reprocess all failed chunks
+python chunk_cli.py reprocess-failed 3
+
+# Restitch final audio (with or without exclusions)
+python chunk_cli.py restitch 3
+python chunk_cli.py restitch 3 --exclude 15 22
+
+# Insert new text at specific position
+python chunk_cli.py insert-chunk 3 10 "New text content" --title "Correction"
 ```
 
 ### Backend Only
@@ -173,12 +219,23 @@ python web_api.py
 
 The FastAPI backend provides comprehensive REST API:
 
+### Core Processing
 - `POST /upload` - Upload and process files
 - `GET /jobs/{job_id}` - Get job status and results
 - `GET /jobs/{job_id}/chapters` - List generated chapters
 - `GET /download/{job_id}/{chapter}` - Download individual chapters
 - `GET /download/{job_id}/all` - Download all chapters as ZIP
 - `WebSocket /ws/{job_id}` - Real-time progress updates
+
+### Chunk Management (NEW!)
+- `GET /api/chapters` - List all tracked chapters
+- `GET /api/chapters/{chapter_id}/status` - Get detailed chunk status
+- `POST /api/chunks/{chunk_id}/reprocess` - Reprocess individual chunk
+- `POST /api/chapters/{chapter_id}/reprocess-failed` - Batch reprocess failed chunks
+- `POST /api/chapters/{chapter_id}/restitch` - Restitch chapter audio
+- `GET /api/chapters/{chapter_id}/candidates` - Get chunks needing attention
+- `POST /api/chunks/{chunk_id}/mark-reprocess` - Mark chunk for reprocessing
+- `POST /api/chapters/{chapter_id}/insert-chunk` - Insert new chunk at position
 
 ## Audio Verification System
 

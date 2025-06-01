@@ -29,6 +29,18 @@ from src.core.processor import Book2AudioProcessor
 from src.core.config import config
 from src.utils.logger import setup_logger
 
+# Optional chunk management imports (safe fallback)
+try:
+    from src.core.enhanced_processor import EnhancedBook2AudioProcessor
+    from src.core.chunk_manager import ChunkManager
+    from src.core.chunk_database import ChunkDatabase
+    CHUNK_MANAGEMENT_AVAILABLE = True
+    print("✅ Chunk management features loaded")
+except ImportError as e:
+    print(f"⚠️  Chunk management features not available: {e}")
+    CHUNK_MANAGEMENT_AVAILABLE = False
+    EnhancedBook2AudioProcessor = Book2AudioProcessor  # Fallback
+
 # Web API Models
 class ConversionRequest(BaseModel):
     voice: str = "tara"
@@ -282,8 +294,8 @@ async def process_book_background(
         # Update status
         await update_job_status(job_id, "processing", 0.1, "Initializing processor...")
         
-        # Initialize processor
-        processor = Book2AudioProcessor("INFO", provider)
+        # Initialize enhanced processor with chunk tracking
+        processor = EnhancedBook2AudioProcessor("INFO", provider, enable_chunk_tracking=True)
         
         # Custom logger to capture progress
         class WebProgressLogger:
@@ -980,6 +992,247 @@ async def get_logs(lines: int = 100):
         }
     except Exception as e:
         return {"error": str(e), "logs": []}
+
+# Chunk Management Endpoints (conditional)
+if CHUNK_MANAGEMENT_AVAILABLE:
+    chunk_db = ChunkDatabase()
+    chunk_manager = ChunkManager()
+else:
+    chunk_db = None
+    chunk_manager = None
+
+@app.get("/api/chunk-management/status")
+async def chunk_management_status():
+    """Check if chunk management features are available"""
+    return {
+        "available": CHUNK_MANAGEMENT_AVAILABLE,
+        "message": "Chunk management features loaded" if CHUNK_MANAGEMENT_AVAILABLE else "Chunk management features not available"
+    }
+
+@app.get("/api/chapters")
+async def list_chapters(project_id: Optional[int] = None):
+    """List all chapters with basic info"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    try:
+        import sqlite3
+        with sqlite3.connect(chunk_db.db_path) as conn:
+            if project_id:
+                cursor = conn.execute("""
+                    SELECT c.id, c.chapter_number, c.title, c.status, c.chunks_directory,
+                           p.title as project_title, c.total_chunks, c.completed_chunks
+                    FROM chapters c
+                    JOIN projects p ON c.project_id = p.id
+                    WHERE c.project_id = ?
+                    ORDER BY c.chapter_number
+                """, (project_id,))
+            else:
+                cursor = conn.execute("""
+                    SELECT c.id, c.chapter_number, c.title, c.status, c.chunks_directory,
+                           p.title as project_title, c.total_chunks, c.completed_chunks
+                    FROM chapters c
+                    JOIN projects p ON c.project_id = p.id
+                    ORDER BY p.id, c.chapter_number
+                """)
+            
+            chapters = []
+            for row in cursor.fetchall():
+                chapters.append({
+                    'id': row[0],
+                    'chapter_number': row[1],
+                    'title': row[2],
+                    'status': row[3],
+                    'chunks_directory': row[4],
+                    'project_title': row[5],
+                    'total_chunks': row[6],
+                    'completed_chunks': row[7]
+                })
+        
+        return {"chapters": chapters}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/status")
+async def get_chapter_status(chapter_id: int):
+    """Get detailed status of chapter chunks"""
+    try:
+        status = chunk_manager.get_chapter_chunk_status(chapter_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        return status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chunks/{chunk_id}/reprocess")
+async def reprocess_chunk(chunk_id: int, background_tasks: BackgroundTasks):
+    """Reprocess a single chunk"""
+    try:
+        background_tasks.add_task(chunk_manager.reprocess_single_chunk, chunk_id)
+        return {"message": f"Chunk {chunk_id} reprocessing started", "chunk_id": chunk_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chapters/{chapter_id}/reprocess-failed")
+async def reprocess_failed_chunks(chapter_id: int, background_tasks: BackgroundTasks):
+    """Reprocess all failed chunks in a chapter"""
+    try:
+        background_tasks.add_task(chunk_manager.batch_reprocess_failed_chunks, chapter_id)
+        return {"message": f"Batch reprocessing started for chapter {chapter_id}", "chapter_id": chapter_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RestitchRequest(BaseModel):
+    exclude_chunks: Optional[List[int]] = None
+
+@app.post("/api/chapters/{chapter_id}/restitch")
+async def restitch_chapter(chapter_id: int, request: Optional[RestitchRequest] = None):
+    """Restitch chapter audio with optional chunk exclusion"""
+    try:
+        exclude_chunks = request.exclude_chunks if request else None
+        output_path = chunk_manager.restitch_chapter_audio(chapter_id, exclude_chunks)
+        return {
+            "message": "Chapter audio restitched successfully",
+            "output_path": output_path,
+            "excluded_chunks": exclude_chunks or []
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/candidates")
+async def get_reprocessing_candidates(chapter_id: int):
+    """Get chunks that might benefit from reprocessing"""
+    try:
+        candidates = chunk_manager.get_reprocessing_candidates(chapter_id)
+        return {"candidates": candidates, "count": len(candidates)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chunks/{chunk_id}/mark-reprocess")
+async def mark_chunk_for_reprocessing(chunk_id: int, reason: str = "User requested"):
+    """Mark a chunk for reprocessing"""
+    try:
+        chunk_manager.mark_chunk_for_reprocessing(chunk_id, reason)
+        return {"message": f"Chunk {chunk_id} marked for reprocessing", "reason": reason}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add chunk management models
+class InsertChunkRequest(BaseModel):
+    position: int
+    text: str
+    title: Optional[str] = None
+
+@app.post("/api/chapters/{chapter_id}/insert-chunk")
+async def insert_chunk(chapter_id: int, request: InsertChunkRequest):
+    """Insert a new chunk at specified position"""
+    try:
+        chunk_id = chunk_manager.insert_new_chunk(
+            chapter_id=chapter_id,
+            position=request.position,
+            new_text=request.text,
+            user_title=request.title
+        )
+        if chunk_id:
+            return {
+                "message": f"Chunk inserted successfully at position {request.position}",
+                "chunk_id": chunk_id,
+                "position": request.position
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to insert chunk")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chunks/{chunk_id}/audio")
+async def get_chunk_audio(chunk_id: int):
+    """Serve audio file for a specific chunk"""
+    try:
+        import sqlite3
+        with sqlite3.connect(chunk_db.db_path) as conn:
+            cursor = conn.execute("SELECT audio_file_path FROM chunks WHERE id = ?", (chunk_id,))
+            row = cursor.fetchone()
+            
+            if not row or not row[0]:
+                raise HTTPException(status_code=404, detail="Audio file not found")
+            
+            audio_path = Path(row[0])
+            if not audio_path.exists():
+                raise HTTPException(status_code=404, detail="Audio file does not exist")
+            
+            return FileResponse(
+                audio_path,
+                media_type="audio/wav",
+                filename=f"chunk_{chunk_id}.wav"
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chunks/{chunk_id}/text")
+async def get_chunk_text(chunk_id: int):
+    """Get text content for a specific chunk"""
+    try:
+        import sqlite3
+        with sqlite3.connect(chunk_db.db_path) as conn:
+            cursor = conn.execute("SELECT text_file_path, original_text FROM chunks WHERE id = ?", (chunk_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="Chunk not found")
+            
+            text_file_path, original_text = row
+            
+            # Try to read from file first, fallback to database
+            text_content = original_text
+            if text_file_path and Path(text_file_path).exists():
+                try:
+                    with open(text_file_path, 'r', encoding='utf-8') as f:
+                        text_content = f.read()
+                except:
+                    pass  # Use database text as fallback
+            
+            return {
+                "chunk_id": chunk_id,
+                "text": text_content,
+                "file_path": text_file_path
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chunks/{chunk_id}/open-file")
+async def open_chunk_file(chunk_id: int):
+    """Open chunk text file with system default editor"""
+    try:
+        import sqlite3
+        import subprocess
+        import platform
+        
+        with sqlite3.connect(chunk_db.db_path) as conn:
+            cursor = conn.execute("SELECT text_file_path FROM chunks WHERE id = ?", (chunk_id,))
+            row = cursor.fetchone()
+            
+            if not row or not row[0]:
+                raise HTTPException(status_code=404, detail="Text file not found")
+            
+            text_file_path = Path(row[0])
+            if not text_file_path.exists():
+                raise HTTPException(status_code=404, detail="Text file does not exist")
+            
+            # Open file with system default editor
+            system = platform.system()
+            try:
+                if system == "Darwin":  # macOS
+                    subprocess.run(["open", str(text_file_path)], check=True)
+                elif system == "Windows":
+                    subprocess.run(["start", str(text_file_path)], shell=True, check=True)
+                else:  # Linux
+                    subprocess.run(["xdg-open", str(text_file_path)], check=True)
+                
+                return {"message": f"Opened file: {text_file_path.name}", "file_path": str(text_file_path)}
+            except subprocess.CalledProcessError as e:
+                raise HTTPException(status_code=500, detail=f"Failed to open file: {str(e)}")
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Serve the React frontend (will be built later)
 @app.get("/app", response_class=HTMLResponse)

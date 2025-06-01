@@ -22,7 +22,13 @@
       "Bash(curl:*)",
       "Bash(source:*)",
       "Bash(pkill:*)",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(true)",
+      "Bash(./start_all.sh:*)",
+      "Bash(touch:*)",
+      "Bash(./kill_all.sh:*)",
+      "Bash(./start_simple.sh:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": []
   },
