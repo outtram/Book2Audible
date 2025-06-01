@@ -6,6 +6,7 @@ import { UploadPage } from './pages/UploadPage';
 import { ConfigurePage } from './pages/ConfigurePage';
 import { ProcessingPage } from './pages/ProcessingPage';
 import { ResultsPage } from './pages/ResultsPage';
+import { ChaptersPage } from './pages/ChaptersPage';
 import { HelpPage } from './pages/HelpPage';
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
                 <Route path="/configure/:jobId" element={<ConfigurePage />} />
                 <Route path="/processing/:jobId" element={<ProcessingPage />} />
                 <Route path="/results/:jobId" element={<ResultsPage />} />
+                <Route path="/chapters" element={<ChaptersPage />} />
                 <Route path="/help" element={<HelpPage />} />
               </Routes>
             </div>

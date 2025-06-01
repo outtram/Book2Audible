@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { startConversion, getProviders, getVoices, testConnection, getUploadInfo } from '../utils/api';
+import { startConversion, getProviders, getVoices, testConnection, getUploadInfo, getJobStatus } from '../utils/api';
 import { Settings, Mic, Zap, AlertCircle, CheckCircle } from 'lucide-react';
 import type { Provider } from '../types';
 
@@ -20,10 +20,27 @@ export const ConfigurePage: React.FC = () => {
   const [loadingUploadInfo, setLoadingUploadInfo] = useState(true);
 
   useEffect(() => {
+    checkJobStatus();
     loadConfiguration();
     testConnections();
     loadUploadInfo();
   }, []);
+
+  const checkJobStatus = async () => {
+    if (!jobId) return;
+    
+    try {
+      const status = await getJobStatus(jobId);
+      if (status.status === 'completed') {
+        // Job is already completed, redirect to results
+        navigate(`/results/${jobId}`);
+        return;
+      }
+    } catch (err) {
+      // Job doesn't exist yet or failed - that's fine, stay on configure page
+      console.log('Job not found or not completed yet, staying on configure page');
+    }
+  };
 
   const loadUploadInfo = async () => {
     if (!jobId) return;

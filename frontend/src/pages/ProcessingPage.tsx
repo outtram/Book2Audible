@@ -1,12 +1,37 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { getJobStatus } from '../utils/api';
 import { Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
+import type { ConversionJob } from '../types';
 
 export const ProcessingPage: React.FC = () => {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
-  const { status, isConnected } = useWebSocket(jobId || null);
+  const { status: wsStatus, isConnected } = useWebSocket(jobId || null);
+  const [apiStatus, setApiStatus] = useState<ConversionJob | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Use API status if available, otherwise fall back to WebSocket status
+  const status = apiStatus || wsStatus;
+
+  useEffect(() => {
+    // Check API status on page load
+    const checkApiStatus = async () => {
+      if (!jobId) return;
+      
+      try {
+        const apiResponse = await getJobStatus(jobId);
+        setApiStatus(apiResponse);
+      } catch (error) {
+        console.error('Failed to get job status from API:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkApiStatus();
+  }, [jobId]);
 
   useEffect(() => {
     if (status?.status === 'completed') {
@@ -17,6 +42,20 @@ export const ProcessingPage: React.FC = () => {
 
   if (!jobId) {
     return <div>Invalid job ID</div>;
+  }
+
+  // Show loading state while checking API
+  if (loading && !status) {
+    return (
+      <div className="px-40 flex flex-1 justify-center py-5">
+        <div className="layout-content-container flex flex-col max-w-[960px] flex-1">
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <span className="ml-3 text-primary-600">Loading job status...</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const formatTime = (dateString?: string) => {

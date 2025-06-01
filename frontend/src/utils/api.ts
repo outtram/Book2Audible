@@ -54,6 +54,11 @@ export const getUploadInfo = async (jobId: string): Promise<any> => {
   return response.data;
 };
 
+export const getAllJobs = async (): Promise<{ jobs: any[] }> => {
+  const response = await api.get('/all-jobs');
+  return response.data;
+};
+
 export const downloadAllChapters = (jobId: string): string => {
   return `${API_BASE}/download/${jobId}`;
 };
