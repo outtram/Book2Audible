@@ -1122,6 +1122,9 @@ class InsertChunkRequest(BaseModel):
     text: str
     title: Optional[str] = None
 
+class ChapterRenameRequest(BaseModel):
+    custom_title: str
+
 @app.post("/api/chapters/{chapter_id}/insert-chunk")
 async def insert_chunk(chapter_id: int, request: InsertChunkRequest):
     """Insert a new chunk at specified position"""
@@ -1233,6 +1236,420 @@ async def open_chunk_file(chunk_id: int):
                 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Chapter Management Endpoints
+@app.post("/api/chapters/{chapter_id}/rename")
+async def rename_chapter(chapter_id: int, request: ChapterRenameRequest):
+    """Set a custom title for a chapter"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        chunk_db.set_chapter_custom_title(chapter_id, request.custom_title)
+        return {
+            "message": f"Chapter {chapter_id} renamed successfully",
+            "new_title": request.custom_title
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/display-info")
+async def get_chapter_display_info(chapter_id: int):
+    """Get chapter display information including custom title"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        display_info = chunk_db.get_chapter_display_info(chapter_id)
+        if not display_info:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        return display_info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/audio-versions")
+async def list_chapter_audio_versions(chapter_id: int):
+    """List all stitched audio versions for a chapter"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        versions = chunk_db.list_chapter_audio_versions(chapter_id)
+        return {
+            "chapter_id": chapter_id,
+            "versions": versions,
+            "total_versions": len(versions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/debug-info")
+async def get_chapter_debug_info(chapter_id: int):
+    """Get detailed debugging information about chapter files and database state"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        # Get chapter info
+        chapter = chunk_db.get_chapter(chapter_id)
+        if not chapter:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        
+        # Get display info
+        display_info = chunk_db.get_chapter_display_info(chapter_id)
+        
+        # Get chunks
+        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
+        
+        # Get active stitched audio
+        active_audio = chunk_db.get_active_chapter_audio(chapter_id)
+        
+        # Get all audio versions
+        audio_versions = chunk_db.list_chapter_audio_versions(chapter_id)
+        
+        # File system analysis
+        chunk_files = []
+        for chunk in chunks:
+            if chunk.audio_file_path:
+                file_exists = Path(chunk.audio_file_path).exists()
+                file_size = Path(chunk.audio_file_path).stat().st_size if file_exists else 0
+                chunk_files.append({
+                    "chunk_id": chunk.id,
+                    "chunk_number": chunk.chunk_number,
+                    "file_path": chunk.audio_file_path,
+                    "file_exists": file_exists,
+                    "file_size_bytes": file_size,
+                    "status": chunk.status
+                })
+        
+        return {
+            "chapter_id": chapter_id,
+            "database_info": {
+                "original_title": chapter.title,
+                "display_info": display_info,
+                "status": chapter.status,
+                "total_chunks": len(chunks),
+                "completed_chunks": len([c for c in chunks if c.status == 'completed'])
+            },
+            "active_stitched_audio": active_audio,
+            "all_audio_versions": audio_versions,
+            "chunk_files": chunk_files,
+            "file_system_summary": {
+                "total_chunk_files": len(chunk_files),
+                "existing_chunk_files": len([f for f in chunk_files if f["file_exists"]]),
+                "missing_chunk_files": len([f for f in chunk_files if not f["file_exists"]]),
+                "total_chunk_size_mb": round(sum([f["file_size_bytes"] for f in chunk_files]) / 1024 / 1024, 2)
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Synchronized Audio Player Endpoints
+@app.get("/api/chapters/{chapter_id}/audio-sync-data")
+async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = None):
+    """Get all data needed for synchronized audio-text playback"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        # Get chapter info
+        chapter = chunk_db.get_chapter(chapter_id)
+        if not chapter:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        
+        # Get chunks first
+        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
+        logger.info(f"Chapter {chapter_id}: found {len(chunks)} chunks")
+        
+        # Calculate total duration from individual audio files
+        total_duration = 0
+        chunk_boundaries = []
+        cumulative_time = 0
+        
+        for chunk in sorted(chunks, key=lambda c: c.chunk_number):
+            chunk_duration = 0
+            if chunk.audio_file_path and Path(chunk.audio_file_path).exists():
+                try:
+                    import wave
+                    with wave.open(chunk.audio_file_path, 'r') as wav_file:
+                        frame_count = wav_file.getnframes()
+                        sample_rate = wav_file.getframerate()
+                        chunk_duration = frame_count / sample_rate
+                except Exception:
+                    # Fallback: estimate from text length
+                    text_length = len(chunk.original_text.split())
+                    chunk_duration = (text_length / 150) * 60
+            
+            chunk_boundaries.append({
+                'chunk_id': chunk.id,
+                'chunk_number': chunk.chunk_number,
+                'title': f"Chunk {chunk.chunk_number}",
+                'start_char': chunk.position_start,
+                'end_char': chunk.position_end,
+                'start_time': cumulative_time,
+                'end_time': cumulative_time + chunk_duration,
+                'orpheus_params': {
+                    'voice': getattr(chunk, 'orpheus_voice', 'tara'),
+                    'temperature': getattr(chunk, 'orpheus_temperature', 0.7),
+                    'speed': getattr(chunk, 'orpheus_speed', 1.0)
+                }
+            })
+            
+            cumulative_time += chunk_duration
+            total_duration += chunk_duration
+        
+        # Build full text from chunks
+        chunk_texts = []
+        for chunk in sorted(chunks, key=lambda c: c.chunk_number):
+            if chunk.original_text:
+                chunk_texts.append(chunk.original_text.strip())
+        full_text = ' '.join(chunk_texts) if chunk_texts else chapter.original_text
+        
+        # Create basic word timings
+        words = full_text.split()
+        word_timings = []
+        if words and total_duration > 0:
+            time_per_word = total_duration / len(words)
+            for i, word in enumerate(words):
+                word_timings.append({
+                    'word_index': i,
+                    'word_text': word,
+                    'start_time': i * time_per_word,
+                    'end_time': (i + 1) * time_per_word,
+                    'confidence': 0.5
+                })
+        
+        # Use database-tracked duration if available for more accuracy
+        active_audio = chunk_db.get_active_chapter_audio(chapter_id)
+        if active_audio and active_audio.get('duration_seconds'):
+            actual_duration = active_audio['duration_seconds']
+            logger.info(f"Using database-tracked duration: {actual_duration:.1f}s (calculated: {total_duration:.1f}s)")
+        else:
+            actual_duration = total_duration
+            logger.info(f"Using calculated duration: {total_duration:.1f}s (no database duration available)")
+        
+        # Adjust word timings to match actual duration if needed
+        if word_timings and actual_duration != total_duration and total_duration > 0:
+            duration_ratio = actual_duration / total_duration
+            for word in word_timings:
+                word['start_time'] *= duration_ratio
+                word['end_time'] *= duration_ratio
+            
+            # Adjust chunk boundaries too
+            for chunk in chunk_boundaries:
+                chunk['start_time'] *= duration_ratio
+                chunk['end_time'] *= duration_ratio
+        
+        logger.info(f"Audio sync data: {len(words)} words, {actual_duration:.1f}s duration")
+        
+        return {
+            "chapter_id": chapter_id,
+            "chapter_title": chapter.title,
+            "audio_url": f"/api/chapters/{chapter_id}/stitched-audio",
+            "full_text": full_text,
+            "word_timings": word_timings,
+            "chunk_boundaries": chunk_boundaries,
+            "reprocessing_history": [],
+            "total_chunks": len(chunks),
+            "total_duration": actual_duration,
+            "debug_info": {
+                "calculated_duration": total_duration,
+                "database_duration": active_audio.get('duration_seconds') if active_audio else None,
+                "using_database": bool(active_audio and active_audio.get('duration_seconds'))
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting audio sync data for chapter {chapter_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/stitched-audio")
+async def get_chapter_stitched_audio(chapter_id: int):
+    """Serve the final stitched audio for a chapter using database as source of truth"""
+    try:
+        # First, try to get the active stitched audio from database
+        active_audio = chunk_db.get_active_chapter_audio(chapter_id)
+        
+        if active_audio and active_audio['audio_file_path']:
+            audio_file_path = Path(active_audio['audio_file_path'])
+            
+            if audio_file_path.exists():
+                logger.info(f"Serving active stitched audio for chapter {chapter_id}: {audio_file_path} "
+                           f"(v{active_audio['version_number']}, {active_audio['file_size_bytes']} bytes, "
+                           f"{active_audio['duration_seconds']:.1f}s)")
+                
+                return FileResponse(
+                    audio_file_path,
+                    media_type="audio/wav",
+                    filename=f"chapter_{chapter_id}_v{active_audio['version_number']}.wav"
+                )
+            else:
+                logger.warning(f"Database references missing file: {audio_file_path}")
+        
+        # Fallback: Legacy file search (for chapters not yet migrated)
+        logger.info(f"No active audio in database for chapter {chapter_id}, falling back to file search")
+        
+        possible_files = []
+        output_dir = Path("data/output")
+        
+        # Get first chunk's path to derive the job directory
+        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
+        if chunks and chunks[0].audio_file_path:
+            chunk_path = Path(chunks[0].audio_file_path)
+            job_dir = chunk_path.parent.parent
+            if job_dir.exists():
+                possible_files.extend(list(job_dir.glob("*.wav")))
+        
+        # Search all job directories as last resort
+        for job_dir in output_dir.iterdir():
+            if job_dir.is_dir():
+                wav_files = list(job_dir.glob("*.wav"))
+                # Filter for larger files (likely stitched)
+                large_files = [f for f in wav_files if f.stat().st_size > 1000000]  # > 1MB
+                possible_files.extend(large_files)
+        
+        # Find the largest WAV file
+        audio_file = None
+        largest_size = 0
+        
+        for file_path in possible_files:
+            if file_path.exists():
+                try:
+                    file_size = file_path.stat().st_size
+                    if file_size > largest_size:
+                        largest_size = file_size
+                        audio_file = file_path
+                except:
+                    continue
+        
+        if not audio_file:
+            raise HTTPException(status_code=404, detail="Chapter stitched audio not found")
+        
+        # Register this file in the database for future use
+        try:
+            chunks_used = [chunk.id for chunk in chunks]
+            chunk_db.create_chapter_audio_version(
+                chapter_id=chapter_id,
+                audio_file_path=str(audio_file),
+                stitched_from_chunks=chunks_used,
+                processing_log=f"Legacy file discovered and registered: {audio_file}"
+            )
+            logger.info(f"Registered legacy stitched audio in database: {audio_file}")
+        except Exception as e:
+            logger.error(f"Failed to register legacy audio in database: {e}")
+        
+        logger.info(f"Serving legacy stitched audio for chapter {chapter_id}: {audio_file} ({largest_size} bytes)")
+        
+        return FileResponse(
+            audio_file,
+            media_type="audio/wav",
+            filename=f"chapter_{chapter_id}.wav"
+        )
+    except Exception as e:
+        logger.error(f"Error serving stitched audio for chapter {chapter_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chunks/{chunk_id}/orpheus-params")
+async def get_chunk_orpheus_params(chunk_id: int):
+    """Get Orpheus parameters used for chunk processing"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        chunk = chunk_db.get_chunk(chunk_id)
+        if not chunk:
+            raise HTTPException(status_code=404, detail="Chunk not found")
+        
+        # Get the active audio version for detailed params
+        audio_version = chunk_db.get_active_audio_version(chunk_id)
+        
+        params = {
+            'chunk_id': chunk_id,
+            'voice': getattr(chunk, 'orpheus_voice', 'tara'),
+            'temperature': getattr(chunk, 'orpheus_temperature', 0.7),
+            'speed': getattr(chunk, 'orpheus_speed', 1.0),
+        }
+        
+        if audio_version and audio_version.get('orpheus_params'):
+            params.update(audio_version['orpheus_params'])
+        
+        return params
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chunks/{chunk_id}/update-orpheus-params")
+async def update_chunk_orpheus_params_endpoint(chunk_id: int, params: Dict[str, Any]):
+    """Update Orpheus parameters for a chunk"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        chunk_db.update_chunk_orpheus_params(
+            chunk_id=chunk_id,
+            temperature=params.get('temperature'),
+            voice=params.get('voice'),
+            speed=params.get('speed')
+        )
+        
+        return {"message": f"Updated Orpheus parameters for chunk {chunk_id}", "params": params}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/word-timings")
+async def get_chapter_word_timings(chapter_id: int):
+    """Get word-level timing data for a chapter"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        word_timings = chunk_db.get_chapter_words(chapter_id)
+        return {
+            "chapter_id": chapter_id,
+            "word_count": len(word_timings),
+            "word_timings": word_timings
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chunks/{chunk_id}/reprocess-with-params")
+async def reprocess_chunk_with_params(chunk_id: int, params: Dict[str, Any], background_tasks: BackgroundTasks):
+    """Reprocess a chunk with specific Orpheus parameters"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        # Start reprocessing with new parameters
+        background_tasks.add_task(
+            _reprocess_chunk_with_enhanced_params, 
+            chunk_id, 
+            params
+        )
+        
+        return {
+            "message": f"Started reprocessing chunk {chunk_id} with new parameters",
+            "chunk_id": chunk_id,
+            "params": params
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def _reprocess_chunk_with_enhanced_params(chunk_id: int, params: Dict[str, Any]):
+    """Background task for reprocessing chunk with enhanced TTS client"""
+    try:
+        from src.core.enhanced_fal_tts_client import EnhancedFalTTSClient
+        
+        enhanced_client = EnhancedFalTTSClient()
+        audio_path, word_timings = enhanced_client.reprocess_chunk_with_params(chunk_id, params)
+        
+        logger.info(f"Successfully reprocessed chunk {chunk_id} with {len(word_timings)} word timings")
+        
+    except Exception as e:
+        logger.error(f"Failed to reprocess chunk {chunk_id}: {e}")
+        # Update chunk status to failed
+        chunk_db.update_chunk_status(
+            chunk_id=chunk_id,
+            status='failed',
+            error_message=str(e)
+        )
 
 # Serve the React frontend (will be built later)
 @app.get("/app", response_class=HTMLResponse)

@@ -60,6 +60,10 @@ class ChunkRecord:
     created_at: str
     updated_at: str
     metadata: Dict[str, Any]
+    orpheus_temperature: Optional[float] = 0.7
+    orpheus_voice: Optional[str] = 'tara'
+    orpheus_speed: Optional[float] = 1.0
+    sequence_in_chapter: Optional[int] = None
 
 class ChunkDatabase:
     """Database manager for chunk-level operations"""
@@ -185,6 +189,42 @@ class ChunkDatabase:
                 )
             """)
             
+            # Chapter-level stitched audio versions for entire chapters
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS chapter_audio_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chapter_id INTEGER NOT NULL,
+                    version_number INTEGER NOT NULL,
+                    audio_file_path TEXT NOT NULL,
+                    file_size_bytes INTEGER,
+                    duration_seconds REAL,
+                    created_at TEXT NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    stitched_from_chunks TEXT,  -- JSON list of chunk IDs used
+                    excluded_chunks TEXT,       -- JSON list of excluded chunk IDs
+                    processing_log TEXT,        -- Detailed stitching log
+                    file_checksum TEXT,         -- MD5 or SHA256 for integrity
+                    FOREIGN KEY (chapter_id) REFERENCES chapters(id),
+                    UNIQUE(chapter_id, version_number)
+                )
+            """)
+            
+            # Chapter custom metadata and settings
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS chapter_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chapter_id INTEGER NOT NULL UNIQUE,
+                    custom_title TEXT,           -- User-defined chapter title
+                    display_order INTEGER,       -- Custom chapter ordering
+                    is_hidden BOOLEAN DEFAULT FALSE,
+                    notes TEXT,                  -- User notes about the chapter
+                    tags TEXT,                   -- JSON array of tags
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (chapter_id) REFERENCES chapters(id)
+                )
+            """)
+            
             # Create indexes for faster queries
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chapters_project ON chapters(project_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_chapter ON chunks(chapter_id)")
@@ -194,6 +234,9 @@ class ChunkDatabase:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_word_timings_time ON word_timings(start_time, end_time)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chapter_words_chapter ON chapter_words(chapter_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chapter_words_chunk ON chapter_words(chunk_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chapter_audio_versions_chapter ON chapter_audio_versions(chapter_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chapter_audio_versions_active ON chapter_audio_versions(is_active)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chapter_settings_chapter ON chapter_settings(chapter_id)")
             
             # Add new columns to existing chunks table if they don't exist (migration)
             self._migrate_chunks_table(conn)
@@ -389,7 +432,8 @@ class ChunkDatabase:
             row = cursor.fetchone()
             
             if row:
-                return ChunkRecord(
+                # Handle both old and new schema
+                base_record = ChunkRecord(
                     id=row[0], chapter_id=row[1], chunk_number=row[2], 
                     position_start=row[3], position_end=row[4], original_text=row[5],
                     cleaned_text=row[6], text_file_path=row[7], audio_file_path=row[8],
@@ -397,6 +441,15 @@ class ChunkDatabase:
                     verification_score=row[12], processing_time=row[13], error_message=row[14],
                     created_at=row[15], updated_at=row[16], metadata=json.loads(row[17])
                 )
+                
+                # Add new fields if they exist
+                if len(row) > 18:
+                    base_record.orpheus_temperature = row[18]
+                    base_record.orpheus_voice = row[19] if len(row) > 19 else 'tara'
+                    base_record.orpheus_speed = row[20] if len(row) > 20 else 1.0
+                    base_record.sequence_in_chapter = row[21] if len(row) > 21 else None
+                
+                return base_record
         return None
     
     def find_project_by_file(self, original_file: str) -> Optional[BookProject]:
@@ -709,3 +762,173 @@ class ChunkDatabase:
                 
                 query = f"UPDATE chunks SET {', '.join(updates)} WHERE id = ?"
                 conn.execute(query, params)
+    
+    # ===== CHAPTER AUDIO VERSION MANAGEMENT =====
+    
+    def create_chapter_audio_version(self, chapter_id: int, audio_file_path: str, 
+                                   stitched_from_chunks: List[int] = None,
+                                   excluded_chunks: List[int] = None,
+                                   processing_log: str = None) -> int:
+        """Create a new stitched audio version for a chapter"""
+        import os
+        import hashlib
+        import wave
+        
+        # Calculate file metadata
+        file_size = os.path.getsize(audio_file_path) if os.path.exists(audio_file_path) else 0
+        duration = 0
+        checksum = None
+        
+        # Get duration from WAV file
+        if os.path.exists(audio_file_path):
+            try:
+                with wave.open(audio_file_path, 'r') as wav_file:
+                    frame_count = wav_file.getnframes()
+                    sample_rate = wav_file.getframerate()
+                    duration = frame_count / sample_rate
+            except:
+                pass
+            
+            # Calculate MD5 checksum for integrity
+            try:
+                with open(audio_file_path, 'rb') as f:
+                    checksum = hashlib.md5(f.read()).hexdigest()
+            except:
+                pass
+        
+        with sqlite3.connect(self.db_path) as conn:
+            # Deactivate previous versions
+            conn.execute("""
+                UPDATE chapter_audio_versions 
+                SET is_active = FALSE 
+                WHERE chapter_id = ?
+            """, (chapter_id,))
+            
+            # Get next version number
+            cursor = conn.execute("""
+                SELECT COALESCE(MAX(version_number), 0) + 1 
+                FROM chapter_audio_versions 
+                WHERE chapter_id = ?
+            """, (chapter_id,))
+            version_number = cursor.fetchone()[0]
+            
+            # Create new version
+            cursor = conn.execute("""
+                INSERT INTO chapter_audio_versions (
+                    chapter_id, version_number, audio_file_path, file_size_bytes,
+                    duration_seconds, created_at, is_active, stitched_from_chunks,
+                    excluded_chunks, processing_log, file_checksum
+                ) VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?)
+            """, (
+                chapter_id, version_number, audio_file_path, file_size, duration,
+                datetime.now().isoformat(),
+                json.dumps(stitched_from_chunks or []),
+                json.dumps(excluded_chunks or []),
+                processing_log or "",
+                checksum
+            ))
+            
+            version_id = cursor.lastrowid
+            self.logger.info(f"Created chapter audio version {version_number} for chapter {chapter_id}: {audio_file_path}")
+            return version_id
+    
+    def get_active_chapter_audio(self, chapter_id: int) -> Optional[Dict[str, Any]]:
+        """Get the active stitched audio version for a chapter"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT id, version_number, audio_file_path, file_size_bytes,
+                       duration_seconds, created_at, stitched_from_chunks,
+                       excluded_chunks, processing_log, file_checksum
+                FROM chapter_audio_versions
+                WHERE chapter_id = ? AND is_active = TRUE
+                ORDER BY version_number DESC
+                LIMIT 1
+            """, (chapter_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'version_number': row[1],
+                    'audio_file_path': row[2],
+                    'file_size_bytes': row[3],
+                    'duration_seconds': row[4],
+                    'created_at': row[5],
+                    'stitched_from_chunks': json.loads(row[6] or '[]'),
+                    'excluded_chunks': json.loads(row[7] or '[]'),
+                    'processing_log': row[8],
+                    'file_checksum': row[9]
+                }
+        return None
+    
+    def list_chapter_audio_versions(self, chapter_id: int) -> List[Dict[str, Any]]:
+        """List all audio versions for a chapter"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT id, version_number, audio_file_path, file_size_bytes,
+                       duration_seconds, created_at, is_active, stitched_from_chunks,
+                       excluded_chunks, processing_log, file_checksum
+                FROM chapter_audio_versions
+                WHERE chapter_id = ?
+                ORDER BY version_number DESC
+            """, (chapter_id,))
+            
+            versions = []
+            for row in cursor.fetchall():
+                versions.append({
+                    'id': row[0],
+                    'version_number': row[1],
+                    'audio_file_path': row[2],
+                    'file_size_bytes': row[3],
+                    'duration_seconds': row[4],
+                    'created_at': row[5],
+                    'is_active': row[6],
+                    'stitched_from_chunks': json.loads(row[7] or '[]'),
+                    'excluded_chunks': json.loads(row[8] or '[]'),
+                    'processing_log': row[9],
+                    'file_checksum': row[10]
+                })
+            return versions
+    
+    # ===== CHAPTER SETTINGS MANAGEMENT =====
+    
+    def set_chapter_custom_title(self, chapter_id: int, custom_title: str):
+        """Set a custom title for a chapter"""
+        with sqlite3.connect(self.db_path) as conn:
+            # Upsert chapter settings
+            conn.execute("""
+                INSERT INTO chapter_settings (chapter_id, custom_title, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(chapter_id) DO UPDATE SET
+                    custom_title = excluded.custom_title,
+                    updated_at = excluded.updated_at
+            """, (chapter_id, custom_title, datetime.now().isoformat(), datetime.now().isoformat()))
+            
+            self.logger.info(f"Set custom title for chapter {chapter_id}: {custom_title}")
+    
+    def get_chapter_display_info(self, chapter_id: int) -> Dict[str, Any]:
+        """Get chapter display information including custom title"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT c.id, c.chapter_number, c.title, c.status,
+                       cs.custom_title, cs.display_order, cs.is_hidden, cs.notes, cs.tags
+                FROM chapters c
+                LEFT JOIN chapter_settings cs ON c.id = cs.chapter_id
+                WHERE c.id = ?
+            """, (chapter_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'chapter_number': row[1],
+                    'original_title': row[2],
+                    'status': row[3],
+                    'custom_title': row[4],
+                    'display_title': row[4] or row[2],  # Use custom title if available
+                    'display_order': row[5],
+                    'is_hidden': row[6],
+                    'notes': row[7],
+                    'tags': json.loads(row[8] or '[]')
+                }
+        return None

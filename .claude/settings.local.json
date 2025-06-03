@@ -28,7 +28,13 @@
       "Bash(touch:*)",
       "Bash(./kill_all.sh:*)",
       "Bash(./start_simple.sh:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:*)",
+      "Bash(rm:*)",
+      "Bash(cat:*)",
+      "Bash(git stash:*)",
+      "Bash(uvicorn:*)"
     ],
     "deny": []
   },

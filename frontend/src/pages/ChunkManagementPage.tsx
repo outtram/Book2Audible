@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Settings, RefreshCcw, Plus, X, Check, AlertTriangle, Volume2, Play, Pause, FileText, ExternalLink } from 'lucide-react';
+import { Settings, RefreshCcw, Plus, X, Check, AlertTriangle, Volume2, Play, Pause, FileText, ExternalLink, Music } from 'lucide-react';
+// Import both players - SimpleSyncPlayer for fallback, SynchronizedAudioPlayer for full features
+import { SimpleSyncPlayer } from '../components/SimpleSyncPlayer';
+import { SynchronizedAudioPlayer } from '../components/SynchronizedAudioPlayer';
 
 interface Chunk {
   chunk_id: number;
@@ -77,6 +80,12 @@ const api = {
     const response = await fetch(`/api/chunks/${chunkId}/open-file`);
     if (!response.ok) throw new Error('Failed to open chunk file');
     return response.json();
+  },
+
+  getOrpheusParams: async (chunkId: number) => {
+    const response = await fetch(`/api/chunks/${chunkId}/orpheus-params`);
+    if (!response.ok) throw new Error('Failed to get Orpheus parameters');
+    return response.json();
   }
 };
 
@@ -90,6 +99,9 @@ export const ChunkManagementPage: React.FC = () => {
   const [playingChunk, setPlayingChunk] = useState<number | null>(null);
   const [textPreview, setTextPreview] = useState<{ chunkId: number; text: string } | null>(null);
   const [audioElements, setAudioElements] = useState<Map<number, HTMLAudioElement>>(new Map());
+  const [showSyncPlayer, setShowSyncPlayer] = useState(false);
+  const [useFullSyncPlayer, setUseFullSyncPlayer] = useState(true); // Toggle between Simple and Full player
+  const [orpheusParams, setOrpheusParams] = useState<{ chunkId: number; params: any } | null>(null);
 
   useEffect(() => {
     if (chapterId) {
@@ -210,6 +222,15 @@ export const ChunkManagementPage: React.FC = () => {
   const openTextFile = async (chunkId: number) => {
     try {
       await api.openChunkFile(chunkId);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const showOrpheusParams = async (chunkId: number) => {
+    try {
+      const params = await api.getOrpheusParams(chunkId);
+      setOrpheusParams({ chunkId, params });
     } catch (err: any) {
       setError(err.message);
     }
@@ -337,6 +358,25 @@ export const ChunkManagementPage: React.FC = () => {
             Restitch Audio {selectedChunks.size > 0 && `(Exclude ${selectedChunks.size})`}
           </button>
           
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSyncPlayer(true)}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Music className="h-4 w-4" />
+              Synchronized Player {useFullSyncPlayer ? '(Full)' : '(Preview)'}
+            </button>
+            
+            <button
+              onClick={() => setUseFullSyncPlayer(!useFullSyncPlayer)}
+              className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+              title={`Switch to ${useFullSyncPlayer ? 'Preview' : 'Full'} player`}
+            >
+              {useFullSyncPlayer ? '📊' : '🔧'}
+            </button>
+          </div>
+          
           <button
             onClick={loadChapterStatus}
             disabled={loading}
@@ -429,6 +469,15 @@ export const ChunkManagementPage: React.FC = () => {
                     <ExternalLink className="h-4 w-4" />
                   </button>
                   
+                  {/* Orpheus parameters button */}
+                  <button
+                    onClick={() => showOrpheusParams(chunk.chunk_id)}
+                    className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                    title="View Orpheus TTS parameters"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                  
                   <button
                     onClick={() => handleReprocessChunk(chunk.chunk_id)}
                     disabled={processing.has(chunk.chunk_id)}
@@ -454,6 +503,8 @@ export const ChunkManagementPage: React.FC = () => {
             <li>• 🎵 Play button: Listen to chunk audio directly in browser</li>
             <li>• 📄 Text button: Preview chunk text content</li>
             <li>• 🔗 External button: Open text file in your default editor</li>
+            <li>• ⚙️ Settings button: View Orpheus TTS parameters (voice, temperature, speed)</li>
+            <li>• 🎼 Synchronized Player: Word-level audio-text synchronization (click 📊/🔧 to toggle Full/Preview mode)</li>
           </ul>
         </div>
       </div>
@@ -493,6 +544,82 @@ export const ChunkManagementPage: React.FC = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Orpheus Parameters Modal */}
+      {orpheusParams && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-primary-700">
+                Chunk {orpheusParams.chunkId} - Orpheus Parameters
+              </h3>
+              <button
+                onClick={() => setOrpheusParams(null)}
+                className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Voice</label>
+                  <div className="px-3 py-2 bg-gray-50 border rounded-md text-sm">
+                    {orpheusParams.params.voice || 'tara'}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+                  <div className="px-3 py-2 bg-gray-50 border rounded-md text-sm">
+                    {orpheusParams.params.temperature || 0.7}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Speed</label>
+                <div className="px-3 py-2 bg-gray-50 border rounded-md text-sm">
+                  {orpheusParams.params.speed || 1.0}
+                </div>
+              </div>
+              {orpheusParams.params.additional && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Additional Parameters</label>
+                  <div className="px-3 py-2 bg-gray-50 border rounded-md text-sm">
+                    <pre className="text-xs">{JSON.stringify(orpheusParams.params.additional, null, 2)}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setOrpheusParams(null)}
+                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Synchronized Audio Player Modal */}
+      {showSyncPlayer && chapterStatus && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-6xl h-full max-h-[90vh] overflow-y-auto">
+            {useFullSyncPlayer ? (
+              <SynchronizedAudioPlayer 
+                chapterId={chapterStatus.chapter_id}
+                onClose={() => setShowSyncPlayer(false)}
+              />
+            ) : (
+              <SimpleSyncPlayer 
+                chapterId={chapterStatus.chapter_id}
+                onClose={() => setShowSyncPlayer(false)}
+              />
+            )}
           </div>
         </div>
       )}
