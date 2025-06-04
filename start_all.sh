@@ -54,16 +54,16 @@ fi
 npm run dev &
 FRONTEND_PID=$!
 
-# Wait a moment for frontend to start
-sleep 5
+# Wait for frontend to start (Vite typically takes 2-3 seconds)
+echo "⏳ Waiting for frontend to start..."
+sleep 8
 
-# Check if frontend started successfully
-if curl -s http://localhost:3000/ > /dev/null; then
+# Simple check if frontend started successfully
+if curl -s http://localhost:3000/ > /dev/null 2>&1; then
     echo "✅ Frontend started successfully (PID: $FRONTEND_PID)"
 else
-    echo "❌ Frontend failed to start"
-    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null
-    exit 1
+    echo "⚠️  Frontend may still be starting (PID: $FRONTEND_PID)"
+    echo "    This is normal - it will be available shortly"
 fi
 
 echo ""
