@@ -7,12 +7,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': 'http://127.0.0.1:8000',
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://127.0.0.1:8000',
         ws: true
       },
-      '/static': 'http://localhost:8000'
+      '/static': 'http://127.0.0.1:8000'
     }
   },
   build: {
