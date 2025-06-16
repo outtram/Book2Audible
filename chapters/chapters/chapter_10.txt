@@ -1,13 +1,11 @@
 ADHD Fatigue
-A
-n ADHD brain is not wired the same way as a non-ADHD brain.
+An ADHD brain is not wired the same way as a non-ADHD brain.
 Research continues to show specific differences in the ADHD
 brain’s structure, function and chemistry which create significant
 differences in how ADHDers navigate the world. While a neurotypical
 brain is wired to intuitively tune out environmental distractors, control
 impulses and sustain attention, many of the mechanisms required to do
-those things are dysregulated in ADHD (Wu et al., 2012; Volkow et al.,
-2010). ADHDers can become overstimulated because of the way their
+those things are dysregulated in ADHD. ADHDers can become overstimulated because of the way their
 brain filters sensory input (i.e. what your brain pays attention too or filters
 out). The mental effort required to filter out background noise can be
 exhausting for ADHDers. Fatigue is a common clinical feature of
@@ -15,14 +13,12 @@ attention deficit hyperactivity disorder in adulthood.
 In one study researchers measured participants responses to a visual
 stimulus and found that ADHD participants were not filtering visual
 input to focus solely on the digits as instructed, rather their brains were
-paying attention to all the visual input presented on the screen (Bubl et al.,
-2015). More specifically, the researchers reported that ADHD participants
+paying attention to all the visual input presented on the screen. More specifically, the researchers reported that ADHD participants
 had 138% more ‘background noise’ in the brain (i.e., a patten
 electroretinogram measured retinal functions in both eyes) compared to
 the control group. A further study concluded similar finding using
 magnetic resonance imaging data showing that all regions of the brain
-associated with sensory processing revealed elevated activity (Tian et al.,
-2008). These findings indicate that elevated background noise is
+associated with sensory processing revealed elevated activity. These findings indicate that elevated background noise is
 associated with symptoms of inattention in ADHD and supports the use
 of interventions that reduce noise and distractions.
 Several types of sensory inputs can trigger overstimulation (e.g., tactile
@@ -89,7 +85,7 @@ intentionally time block accordingly. A cycle of overcommitting to things
 and the accumulative impact of overextending can lead to burnout.
 ADHD burnout is characterised by pervasive exhaustion, loss of function
 (e.g. diminished capacity to cope with daily life), and reduced tolerance to
-stimulus (Raymaker et al. 2020).
+stimulus.
 Setting healthy boundaries can be physical, mental, emotional and/or
 time based. When we are faced with stressful situations in life, an inability
 to integrate our emotional and intuitive processing with our mental

@@ -1,7 +1,7 @@
 Mapping Out ADHD Roadblocks
 A clinically significant challenge associated with ADHD relates to
 executive functions of the brain, including difficulties with
-organising, prioritising, and activation of tasks (Brown, 2005).
+organising, prioritising, and activation of tasks.
 This may include difficulties with getting started on tasks and
 procrastination. Time blindness results in difficulties with setting realistic
 limitations, figuring out how long a task will take, and prioritising and
@@ -11,19 +11,18 @@ Difficulties with regulating alertness, sustaining effort, and processing
 speed may result in taking an extraordinarily long time to complete
 certain types of tasks (e.g., life admin tasks) and difficulties with wrapping
 up the final details of projects once the challenging parts of one’s work
-are achieved (Barkley, 1998; Brown, 2005). There can be motivational
+are achieved. There can be motivational
 challenges in relation to engaging in uninteresting tasks, a tendency to
 move from one task to another, and achieving below potential due to not
 finishing what one starts. Research findings indicate that ADHD
 participants report having an interest-based nervous system, in that they
 are drawn to tasks that are intrinsically interesting to them and are not
 motivated by rewards and consequences (i.e., money or status is not a
-primary motivator) (Dodson, 2021).
+primary motivator).
 Further concerns include chronic difficulties with focusing attention,
 shifting attention, and sustaining attention. This may be experienced as
 excessive distractibility and difficulty ignoring the myriad of thoughts,
-background noises, and perceptions in the surrounding environment
-(Brown, 2005). Conversely, hyperfocus is an intense form of
+background noises, and perceptions in the surrounding environment. Conversely, hyperfocus is an intense form of
 concentration. Employers are initially astounded by the exceptional
 abilities associated with an ability to hyperfocus (including an ability to
 problem solve, systemise, and innovate); however, a lack of
@@ -35,8 +34,7 @@ Hyperactivity is often experienced as an internal feeling of emotional
 hyperarousal (i.e., difficulty with modulating emotions), restlessness, and
 racing thoughts. Social situations can be challenging (as this requires
 monitoring oneself, one’s context, and self-regulating action) and may
-result in feeling self-conscious and inhibited in social interactions (Brown,
-2005).
+result in feeling self-conscious and inhibited in social interactions.
 Two commonly reported symptoms of ADHD that can lead to mental
 exhaustion include choice paralysis and imposter syndrome. Choice
 paralyses often present as running through hundreds of scenarios (for
@@ -45,7 +43,7 @@ syndrome (i.e., the idea of being found out or not living up to one’s
 expectations of the self) leads to self-deprecating thoughts, paralyses, and
 anticipated shame.
 Rejection-sensitive dysphoria is extreme emotional pain that may be
-triggered by a sense of failure or rejection (Dodson, 2021). The reported
+triggered by a sense of failure or rejection. The reported
 overwhelming immediacy and intensity of the feelings can cause one to
 lose perspective (e.g., becoming overly sensitive to criticism or a minor
 slight). ADHDers often go to great lengths to ensure they do not

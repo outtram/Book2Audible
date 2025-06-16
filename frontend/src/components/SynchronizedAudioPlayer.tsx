@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Play, Pause, SkipBack, SkipForward, Volume2, Settings, RefreshCcw } from 'lucide-react';
+import { VERSION } from '../version';
 
 interface WordTiming {
   word_index: number;
@@ -17,6 +18,8 @@ interface ChunkBoundary {
   end_char: number;
   start_time: number;
   end_time: number;
+  audio_file_path?: string;
+  audio_filename?: string;
   orpheus_params: {
     voice: string;
     temperature: number;
@@ -28,6 +31,7 @@ interface AudioSyncData {
   chapter_id: number;
   chapter_title: string;
   audio_url: string;
+  stitched_audio_filename?: string;
   full_text: string;
   word_timings: WordTiming[];
   chunk_boundaries: ChunkBoundary[];
@@ -55,6 +59,7 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
   const [currentChunkId, setCurrentChunkId] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [selectedChunk, setSelectedChunk] = useState<ChunkBoundary | null>(null);
+  const [manualChunkSelection, setManualChunkSelection] = useState<{chunkId: number, timestamp: number} | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const textContainerRef = useRef<HTMLDivElement>(null);
@@ -68,6 +73,10 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
         if (!response.ok) throw new Error('Failed to load sync data');
         const data = await response.json();
         setSyncData(data);
+        // Use API duration instead of HTML5 audio duration for accuracy
+        if (data.total_duration) {
+          setDuration(data.total_duration);
+        }
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -80,7 +89,8 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
 
   // Audio event handlers
   const handleLoadedMetadata = () => {
-    if (audioRef.current) {
+    // Only use HTML5 audio duration if we don't have API duration
+    if (audioRef.current && (!syncData || !syncData.total_duration)) {
       setDuration(audioRef.current.duration);
     }
   };
@@ -90,28 +100,99 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
       const time = audioRef.current.currentTime;
       setCurrentTime(time);
 
-      // Find current word
+      // Find current word with improved synchronization
       if (syncData?.word_timings) {
-        const wordIndex = syncData.word_timings.findIndex(
-          (word, index) => {
-            const nextWord = syncData.word_timings[index + 1];
-            return time >= word.start_time && (!nextWord || time < nextWord.start_time);
-          }
+        // Use chunk boundaries as synchronization checkpoints to reduce drift
+        const currentChunk = syncData.chunk_boundaries.find(
+          chunk => time >= chunk.start_time && time <= chunk.end_time
         );
-        setCurrentWordIndex(wordIndex);
-
-        // Auto-scroll to current word
-        if (wordIndex >= 0 && textContainerRef.current) {
-          const wordElement = textContainerRef.current.querySelector(
-            `[data-word-index="${wordIndex}"]`
-          );
-          if (wordElement) {
-            wordElement.scrollIntoView({ 
-              behavior: 'smooth', 
-              block: 'center',
-              inline: 'nearest'
-            });
+        
+        let wordIndex = -1;
+        
+        if (currentChunk) {
+          // Calculate word position within the current chunk for better accuracy
+          const chunkProgress = (time - currentChunk.start_time) / (currentChunk.end_time - currentChunk.start_time);
+          const chunkStartChar = currentChunk.start_char;
+          const chunkEndChar = currentChunk.end_char;
+          const chunkLength = chunkEndChar - chunkStartChar;
+          const estimatedCharPosition = chunkStartChar + (chunkProgress * chunkLength);
+          
+          // Find the word closest to this character position
+          const text = syncData.full_text;
+          let charCount = 0;
+          const words = text.split(/\s+/);
+          
+          for (let i = 0; i < words.length; i++) {
+            charCount += words[i].length + 1; // +1 for space
+            if (charCount >= estimatedCharPosition) {
+              wordIndex = i;
+              break;
+            }
           }
+          
+          // Fallback to time-based calculation if character-based fails
+          if (wordIndex === -1) {
+            wordIndex = syncData.word_timings.findIndex(
+              (word, index) => {
+                const nextWord = syncData.word_timings[index + 1];
+                return time >= word.start_time && (!nextWord || time < nextWord.start_time);
+              }
+            );
+          }
+        } else {
+          // Fallback to original time-based method
+          wordIndex = syncData.word_timings.findIndex(
+            (word, index) => {
+              const nextWord = syncData.word_timings[index + 1];
+              return time >= word.start_time && (!nextWord || time < nextWord.start_time);
+            }
+          );
+        }
+        
+        // Log timing drift every 10 seconds for debugging
+        if (Math.floor(time) % 10 === 0 && Math.floor(time) !== Math.floor(currentTime)) {
+          const expectedWordAtTime = Math.floor((time / (syncData.total_duration || 1)) * syncData.word_timings.length);
+          const actualWordIndex = wordIndex >= 0 ? wordIndex : -1;
+          const drift = actualWordIndex - expectedWordAtTime;
+          
+          console.log('⏱️ TIMING SYNC DEBUG:', {
+            current_time: time.toFixed(2),
+            expected_word_index: expectedWordAtTime,
+            actual_word_index: actualWordIndex,
+            drift_words: drift,
+            total_words: syncData.word_timings.length,
+            total_duration: syncData.total_duration,
+            current_chunk: currentChunk?.chunk_number || 'none'
+          });
+        }
+        
+        // Check if we should respect manual selection for word updates too
+        const now = Date.now();
+        const shouldRespectManualWordSelection = manualChunkSelection &&
+          (now - manualChunkSelection.timestamp < 5000);
+        
+        if (!shouldRespectManualWordSelection) {
+          setCurrentWordIndex(wordIndex);
+
+          // Auto-scroll to current word
+          if (wordIndex >= 0 && textContainerRef.current) {
+            const wordElement = textContainerRef.current.querySelector(
+              `[data-word-index="${wordIndex}"]`
+            );
+            if (wordElement) {
+              wordElement.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+              });
+            }
+          }
+        } else {
+          console.log('🚫 BLOCKING WORD UPDATE - Respecting manual chunk selection', {
+            current_word_index: currentWordIndex,
+            would_set_to: wordIndex,
+            manual_selection_age_ms: now - manualChunkSelection.timestamp
+          });
         }
       }
 
@@ -120,10 +201,79 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
         const chunk = syncData.chunk_boundaries.find(
           chunk => time >= chunk.start_time && time <= chunk.end_time
         );
-        setCurrentChunkId(chunk?.chunk_id || null);
+        const newChunkId = chunk?.chunk_id || null;
+        
+        // Check if we should respect manual selection (within 5 seconds of manual click)
+        const now = Date.now();
+        const timeSinceManualSelection = manualChunkSelection ? now - manualChunkSelection.timestamp : 0;
+        const shouldRespectManualSelection = manualChunkSelection &&
+          (timeSinceManualSelection < 5000) &&
+          manualChunkSelection.chunkId === currentChunkId;
+        
+        // Debug the blocking logic
+        if (manualChunkSelection && newChunkId !== currentChunkId) {
+          console.log('🔍 CHUNK BLOCKING ANALYSIS:', {
+            has_manual_selection: !!manualChunkSelection,
+            manual_chunk_id: manualChunkSelection?.chunkId,
+            current_chunk_id: currentChunkId,
+            new_chunk_id: newChunkId,
+            time_since_manual_ms: timeSinceManualSelection,
+            within_time_limit: timeSinceManualSelection < 5000,
+            chunk_ids_match: manualChunkSelection?.chunkId === currentChunkId,
+            should_respect: shouldRespectManualSelection,
+            audio_time: time.toFixed(2)
+          });
+        }
+        
+        // Clear manual selection if audio has moved significantly beyond the selected chunk
+        if (manualChunkSelection && currentChunkId) {
+          const currentChunk = syncData.chunk_boundaries.find(c => c.chunk_id === currentChunkId);
+          if (currentChunk && (time < currentChunk.start_time - 1 || time > currentChunk.end_time + 1)) {
+            console.log('🧹 CLEARING MANUAL SELECTION - Audio moved beyond selected chunk');
+            setManualChunkSelection(null);
+          }
+        }
+        
+        // Log chunk changes to detect conflicts with manual selection
+        if (newChunkId !== currentChunkId) {
+          console.log('🔄 AUTO CHUNK UPDATE v2.1.3:', {
+            audio_time: time.toFixed(2),
+            old_chunk_id: currentChunkId,
+            new_chunk_id: newChunkId,
+            new_chunk_number: chunk?.chunk_number || 'none',
+            old_chunk_number: syncData.chunk_boundaries.find(c => c.chunk_id === currentChunkId)?.chunk_number || 'none',
+            manual_selection_active: shouldRespectManualSelection,
+            manual_selection_age_ms: manualChunkSelection ? now - manualChunkSelection.timestamp : 'none',
+            trigger: 'handleTimeUpdate',
+            will_update: !shouldRespectManualSelection
+          });
+        }
+        
+        // Only update if not respecting manual selection
+        if (!shouldRespectManualSelection) {
+          setCurrentChunkId(newChunkId);
+          
+          // Log current WAV file information for debugging
+          if (newChunkId && syncData?.chunk_boundaries) {
+            const currentChunk = syncData.chunk_boundaries.find(c => c.chunk_id === newChunkId);
+            if (currentChunk) {
+              console.log('🎧 CURRENT WAV FILE DEBUG:', {
+                chunk_id: newChunkId,
+                chunk_number: currentChunk.chunk_number,
+                actual_audio_file_path: currentChunk.audio_file_path,
+                audio_filename: currentChunk.audio_filename,
+                audio_time: time.toFixed(2),
+                chunk_start: currentChunk.start_time,
+                chunk_end: currentChunk.end_time
+              });
+            }
+          }
+        } else {
+          console.log('🚫 BLOCKING AUTO UPDATE - Respecting manual selection');
+        }
       }
     }
-  }, [syncData]);
+  }, [syncData, currentTime]);
 
   const togglePlayPause = () => {
     if (audioRef.current) {
@@ -157,8 +307,114 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
   };
 
   const jumpToChunk = (chunk: ChunkBoundary) => {
-    seekTo(chunk.start_time);
+    console.log('🔧 CHUNK CLICK DEBUG v2.1.3:', {
+      clicked_chunk_number: chunk.chunk_number,
+      clicked_chunk_id: chunk.chunk_id,
+      current_chunk_id_before: currentChunkId,
+      will_set_to: chunk.chunk_id,
+      chunk_start_time: chunk.start_time,
+      chunk_end_time: chunk.end_time,
+      current_audio_time: audioRef.current?.currentTime || 0
+    });
+    
+    // Log all chunks for comparison
+    if (syncData?.chunk_boundaries) {
+      console.log('📋 ALL CHUNKS COMPARISON:', syncData.chunk_boundaries.map((c, idx) => ({
+        array_index: idx,
+        chunk_number: c.chunk_number,
+        chunk_id: c.chunk_id,
+        is_current: currentChunkId === c.chunk_id,
+        start_time: c.start_time,
+        end_time: c.end_time
+      })));
+    }
+    
+    // Track manual selection to prevent automatic override
+    const now = Date.now();
+    setManualChunkSelection({ chunkId: chunk.chunk_id, timestamp: now });
+    
+    // Seek to slightly after the chunk start to avoid boundary conflicts
+    const seekTime = chunk.start_time + 0.1; // Add 100ms to ensure we're clearly in the target chunk
+    seekTo(seekTime);
     setSelectedChunk(chunk);
+    setCurrentChunkId(chunk.chunk_id);
+    
+    // Immediately update word highlighting to match the chunk start
+    if (syncData?.word_timings && syncData?.full_text) {
+      // Find the word that corresponds to the chunk start time
+      let targetWordIndex = -1;
+      
+      // Method 1: Use character position mapping
+      const chunkStartChar = chunk.start_char;
+      const text = syncData.full_text;
+      const words = text.split(/\s+/);
+      let charCount = 0;
+      
+      for (let i = 0; i < words.length; i++) {
+        if (charCount >= chunkStartChar) {
+          targetWordIndex = i;
+          break;
+        }
+        charCount += words[i].length + 1; // +1 for space
+      }
+      
+      // Method 2: Fallback to time-based if character method fails
+      if (targetWordIndex === -1) {
+        targetWordIndex = syncData.word_timings.findIndex(
+          (word, index) => {
+            const nextWord = syncData.word_timings[index + 1];
+            return chunk.start_time >= word.start_time && (!nextWord || chunk.start_time < nextWord.start_time);
+          }
+        );
+      }
+      
+      if (targetWordIndex >= 0) {
+        console.log('🎯 SETTING WORD INDEX:', {
+          old_word_index: currentWordIndex,
+          new_word_index: targetWordIndex,
+          target_word: words[targetWordIndex]
+        });
+        
+        setCurrentWordIndex(targetWordIndex);
+        
+        // Scroll to the target word
+        setTimeout(() => {
+          if (textContainerRef.current) {
+            const wordElement = textContainerRef.current.querySelector(
+              `[data-word-index="${targetWordIndex}"]`
+            );
+            console.log('🔍 WORD ELEMENT SEARCH:', {
+              target_index: targetWordIndex,
+              element_found: !!wordElement,
+              element_text: wordElement?.textContent?.trim()
+            });
+            
+            if (wordElement) {
+              wordElement.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+              });
+              console.log('📜 SCROLLED TO WORD:', targetWordIndex);
+            }
+          }
+        }, 100); // Small delay to ensure DOM is updated
+      }
+      
+      console.log('📝 WORD SYNC ON CHUNK CLICK:', {
+        chunk_start_char: chunkStartChar,
+        target_word_index: targetWordIndex,
+        target_word: targetWordIndex >= 0 ? words[targetWordIndex] : 'not found',
+        method_used: targetWordIndex >= 0 ? (charCount >= chunkStartChar ? 'character_mapping' : 'time_based') : 'failed'
+      });
+    }
+    
+    console.log('✅ CHUNK SET COMPLETE v2.1.3:', {
+      chunk_number: chunk.chunk_number,
+      new_current_chunk_id: chunk.chunk_id,
+      audio_time_after_seek: chunk.start_time,
+      manual_selection_timestamp: now
+    });
   };
 
   const changePlaybackRate = (rate: number) => {
@@ -256,8 +512,19 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
         <div>
           <h2 className="text-xl font-bold">Synchronized Audio Player</h2>
           <p className="text-primary-100">
-            {syncData?.chapter_title} • {syncData?.total_chunks} chunks
+            {syncData?.chapter_title} • {syncData?.total_chunks} chunks • v{VERSION.frontend}
           </p>
+          <p className="text-primary-200 text-sm">
+            🆔 Chapter ID: {chapterId} | 🎵 Stitched Audio: {syncData?.stitched_audio_filename || 'Loading...'}
+          </p>
+          {currentChunkId && syncData?.chunk_boundaries && (
+            <p className="text-primary-200 text-xs font-mono break-all">
+              🎧 Current WAV: {(() => {
+                const currentChunk = syncData.chunk_boundaries.find(c => c.chunk_id === currentChunkId);
+                return currentChunk?.audio_file_path || `chunk_${currentChunk?.chunk_number || 'unknown'}.wav`;
+              })()}
+            </p>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -360,7 +627,7 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
             <div>
               <h3 className="text-lg font-semibold mb-3">🎵 Chunks</h3>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {syncData?.chunk_boundaries.map((chunk) => (
+                {syncData?.chunk_boundaries.map((chunk, arrayIndex) => (
                   <div
                     key={chunk.chunk_id}
                     onClick={() => jumpToChunk(chunk)}
@@ -370,7 +637,12 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
                         : 'border-gray-300 hover:border-primary-300 hover:bg-gray-50'
                     }`}
                   >
-                    <div className="font-medium">Chunk {chunk.chunk_number}</div>
+                    <div className="font-medium">
+                      Chunk {chunk.chunk_number}
+                      <span className="text-xs text-gray-400 ml-2">
+                        (ID: {chunk.chunk_id}, Idx: {arrayIndex})
+                      </span>
+                    </div>
                     <div className="text-sm text-gray-600">
                       {formatTime(chunk.start_time)} - {formatTime(chunk.end_time)}
                     </div>
@@ -405,6 +677,17 @@ export const SynchronizedAudioPlayer: React.FC<SynchronizedAudioPlayerProps> = (
                 <div>Current Word: {currentWordIndex + 1}</div>
                 <div>Current Chunk: {currentChunkId || 'None'}</div>
                 <div>Duration: {formatTime(duration)}</div>
+                {currentChunkId && syncData?.chunk_boundaries && (
+                  <div className="text-blue-600 font-medium">
+                    <div className="font-semibold">🎧 Currently Playing:</div>
+                    <div className="text-xs font-mono break-all mt-1 text-blue-800">
+                      {(() => {
+                        const currentChunk = syncData.chunk_boundaries.find(c => c.chunk_id === currentChunkId);
+                        return currentChunk?.audio_file_path || `chunk_${currentChunk?.chunk_number || 'unknown'}.wav`;
+                      })()}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 FastAPI Web Interface for Book2Audible
+Version: 2.1.0
+Build Date: 2025-06-14
 """
 import os
 import sys
@@ -93,7 +95,22 @@ app.mount("/static", StaticFiles(directory="data/output"), name="static")
 @app.get("/")
 async def root():
     """API health check"""
-    return {"message": "Book2Audible Web API", "status": "running"}
+    return {
+        "message": "Book2Audible Web API",
+        "status": "running",
+        "version": "2.1.0",
+        "build_date": "2025-06-14",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/version")
+async def get_version():
+    """Get API version information"""
+    return {
+        "backend_version": "2.1.0",
+        "build_date": "2025-06-14",
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.get("/api/voices")
 async def get_voices():
@@ -1352,21 +1369,30 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
         raise HTTPException(status_code=503, detail="Chunk management features not available")
     
     try:
+        logger.info(f"📊 SYNC DATA REQUEST: Chapter {chapter_id} audio-sync-data requested")
+        logger.info(f"🔍 DEBUG: URL accessed was /chunks/{chapter_id} which maps to chapter_id={chapter_id}")
+        
         # Get chapter info
         chapter = chunk_db.get_chapter(chapter_id)
         if not chapter:
             raise HTTPException(status_code=404, detail="Chapter not found")
         
+        logger.info(f"📖 CHAPTER INFO:")
+        logger.info(f"   📄 Title: '{chapter.title}'")
+        logger.info(f"   🔢 Chapter number: {chapter.chapter_number}")
+        logger.info(f"   📁 Chunks directory: {chapter.chunks_directory}")
+        logger.info(f"   🆔 Database chapter_id: {chapter.id}")
+        
         # Get chunks first
         chunks = chunk_db.get_chunks_by_chapter(chapter_id)
-        logger.info(f"Chapter {chapter_id}: found {len(chunks)} chunks")
+        logger.info(f"📦 CHUNKS: Found {len(chunks)} chunks for chapter {chapter_id}")
         
         # Calculate total duration from individual audio files
         total_duration = 0
         chunk_boundaries = []
         cumulative_time = 0
         
-        for chunk in sorted(chunks, key=lambda c: c.chunk_number):
+        for i, chunk in enumerate(sorted(chunks, key=lambda c: c.chunk_number)):
             chunk_duration = 0
             if chunk.audio_file_path and Path(chunk.audio_file_path).exists():
                 try:
@@ -1375,12 +1401,20 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
                         frame_count = wav_file.getnframes()
                         sample_rate = wav_file.getframerate()
                         chunk_duration = frame_count / sample_rate
-                except Exception:
-                    # Fallback: estimate from text length
+                except Exception as e:
+                    logger.warning(f"⚠️ WAV DURATION ERROR: Could not read WAV duration for chunk {chunk.chunk_number} (ID: {chunk.id}). Error: {e}. Falling back to text length estimation.")
                     text_length = len(chunk.original_text.split())
-                    chunk_duration = (text_length / 150) * 60
+                    chunk_duration = (text_length / 150) * 60 # Estimate 150 words per minute
+                    logger.info(f"   ESTIMATED DURATION: {chunk_duration:.2f}s for chunk {chunk.chunk_number} ({text_length} words)")
+            else:
+                logger.warning(f"⚠️ AUDIO FILE MISSING: Audio file not found for chunk {chunk.chunk_number} (ID: {chunk.id}). Falling back to text length estimation.")
+                text_length = len(chunk.original_text.split())
+                chunk_duration = (text_length / 150) * 60 # Estimate 150 words per minute
+                logger.info(f"   ESTIMATED DURATION: {chunk_duration:.2f}s for chunk {chunk.chunk_number} ({text_length} words)")
+
+            logger.info(f"⏱️ CHUNK DURATION: Chunk {chunk.chunk_number} (ID: {chunk.id}) calculated duration: {chunk_duration:.2f}s")
             
-            chunk_boundaries.append({
+            chunk_boundary = {
                 'chunk_id': chunk.id,
                 'chunk_number': chunk.chunk_number,
                 'title': f"Chunk {chunk.chunk_number}",
@@ -1388,13 +1422,19 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
                 'end_char': chunk.position_end,
                 'start_time': cumulative_time,
                 'end_time': cumulative_time + chunk_duration,
+                'audio_file_path': chunk.audio_file_path,  # Include actual file path
+                'audio_filename': chunk.audio_file_path.split('/')[-1] if chunk.audio_file_path else None,  # Extract filename
                 'orpheus_params': {
                     'voice': getattr(chunk, 'orpheus_voice', 'tara'),
                     'temperature': getattr(chunk, 'orpheus_temperature', 0.7),
                     'speed': getattr(chunk, 'orpheus_speed', 1.0)
                 }
-            })
+            }
             
+            # Debug logging for chunk indexing
+            logger.info(f"🔍 CHUNK BOUNDARY DEBUG: Array index {i} -> chunk_id={chunk.id}, chunk_number={chunk.chunk_number}, start_time={cumulative_time:.2f}s, end_time={cumulative_time + chunk_duration:.2f}s")
+            
+            chunk_boundaries.append(chunk_boundary)
             cumulative_time += chunk_duration
             total_duration += chunk_duration
         
@@ -1403,7 +1443,16 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
         for chunk in sorted(chunks, key=lambda c: c.chunk_number):
             if chunk.original_text:
                 chunk_texts.append(chunk.original_text.strip())
+        
         full_text = ' '.join(chunk_texts) if chunk_texts else chapter.original_text
+        
+        logger.info(f"📝 TEXT ASSEMBLY:")
+        if chunk_texts:
+            logger.info(f"   📦 Using {len(chunk_texts)} chunk texts, total length: {len(full_text)} chars")
+            logger.info(f"   📄 Text preview: '{full_text[:200]}...'")
+        else:
+            logger.info(f"   📖 Using chapter.original_text, length: {len(full_text) if full_text else 0} chars")
+            logger.info(f"   📄 Text preview: '{full_text[:200] if full_text else 'NO TEXT'}...'")
         
         # Create basic word timings
         words = full_text.split()
@@ -1419,11 +1468,18 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
                     'confidence': 0.5
                 })
         
-        # Use database-tracked duration if available for more accuracy
+        # Prioritize calculated WAV duration over potentially stale database duration
         active_audio = chunk_db.get_active_chapter_audio(chapter_id)
         if active_audio and active_audio.get('duration_seconds'):
-            actual_duration = active_audio['duration_seconds']
-            logger.info(f"Using database-tracked duration: {actual_duration:.1f}s (calculated: {total_duration:.1f}s)")
+            database_duration = active_audio['duration_seconds']
+            # Use calculated duration if it's significantly different from database
+            duration_diff = abs(total_duration - database_duration)
+            if duration_diff > 1.0:  # More than 1 second difference
+                actual_duration = total_duration
+                logger.warning(f"⚠️ DURATION MISMATCH: Database duration ({database_duration:.1f}s) differs significantly from calculated duration ({total_duration:.1f}s). Using calculated duration.")
+            else:
+                actual_duration = database_duration
+                logger.info(f"Using database-tracked duration: {actual_duration:.1f}s (calculated: {total_duration:.1f}s)")
         else:
             actual_duration = total_duration
             logger.info(f"Using calculated duration: {total_duration:.1f}s (no database duration available)")
@@ -1440,12 +1496,23 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
                 chunk['start_time'] *= duration_ratio
                 chunk['end_time'] *= duration_ratio
         
-        logger.info(f"Audio sync data: {len(words)} words, {actual_duration:.1f}s duration")
+        logger.info(f"🎵 AUDIO MAPPING:")
+        logger.info(f"   🔗 Audio URL: /api/chapters/{chapter_id}/stitched-audio")
+        logger.info(f"   📊 Word count: {len(words)} words")
+        logger.info(f"   ⏱️  Duration: {actual_duration:.1f}s")
+        logger.info(f"   📦 Chunk boundaries: {len(chunk_boundaries)}")
         
-        return {
+        # Get the actual stitched audio filename
+        stitched_audio_filename = "stitched-audio"  # default
+        if active_audio and active_audio.get('audio_file_path'):
+            stitched_audio_filename = Path(active_audio['audio_file_path']).name
+        
+        # Create response payload
+        response_payload = {
             "chapter_id": chapter_id,
             "chapter_title": chapter.title,
             "audio_url": f"/api/chapters/{chapter_id}/stitched-audio",
+            "stitched_audio_filename": stitched_audio_filename,
             "full_text": full_text,
             "word_timings": word_timings,
             "chunk_boundaries": chunk_boundaries,
@@ -1458,6 +1525,40 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
                 "using_database": bool(active_audio and active_audio.get('duration_seconds'))
             }
         }
+        
+        # Log payload size and test JSON serialization to catch Unicode issues
+        try:
+            import json
+            json_str = json.dumps(response_payload)
+            payload_size = len(json_str)
+            logger.info(f"📊 PAYLOAD SIZE: {payload_size} characters")
+            if payload_size > 500000:  # Log large payloads
+                logger.warning(f"⚠️ LARGE PAYLOAD: {payload_size} chars - monitoring for Unicode issues")
+        except Exception as e:
+            logger.error(f"❌ JSON SERIALIZATION ERROR: {e}")
+            logger.error(f"   Chapter: {chapter_id}, Full text length: {len(full_text)}, Word count: {len(words)}")
+            # Try to identify problematic data
+            try:
+                json.dumps({"chapter_id": chapter_id, "chapter_title": chapter.title})
+                logger.info("   ✅ Basic chapter info serializes OK")
+            except:
+                logger.error("   ❌ Basic chapter info has Unicode issues")
+            
+            try:
+                json.dumps({"full_text": full_text})
+                logger.info("   ✅ Full text serializes OK")
+            except Exception as text_error:
+                logger.error(f"   ❌ Full text has Unicode issues: {text_error}")
+            
+            try:
+                json.dumps({"word_timings": word_timings[:10]})  # Test first 10 words
+                logger.info("   ✅ Sample word timings serialize OK")
+            except Exception as word_error:
+                logger.error(f"   ❌ Word timings have Unicode issues: {word_error}")
+            
+            raise HTTPException(status_code=500, detail=f"JSON serialization error: {e}")
+        
+        return response_payload
     except Exception as e:
         logger.error(f"Error getting audio sync data for chapter {chapter_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1466,24 +1567,38 @@ async def get_chapter_audio_sync_data(chapter_id: int, version: Optional[int] = 
 async def get_chapter_stitched_audio(chapter_id: int):
     """Serve the final stitched audio for a chapter using database as source of truth"""
     try:
+        logger.info(f"🎵 AUDIO REQUEST: Chapter {chapter_id} stitched audio requested")
+        logger.info(f"🔍 DEBUG: This corresponds to URL /api/chapters/{chapter_id}/stitched-audio")
+        
         # First, try to get the active stitched audio from database
         active_audio = chunk_db.get_active_chapter_audio(chapter_id)
         
         if active_audio and active_audio['audio_file_path']:
             audio_file_path = Path(active_audio['audio_file_path'])
             
+            logger.info(f"📁 DATABASE AUDIO: Found active audio in database")
+            logger.info(f"   📄 File path: {audio_file_path}")
+            logger.info(f"   📄 File name: {audio_file_path.name}")
+            logger.info(f"   🔢 Version: {active_audio['version_number']}")
+            logger.info(f"   📊 Size: {active_audio['file_size_bytes']} bytes")
+            logger.info(f"   ⏱️  Duration: {active_audio['duration_seconds']:.1f}s")
+            logger.info(f"   📅 Created: {active_audio['created_at']}")
+            logger.info(f"   ✅ File exists: {audio_file_path.exists()}")
+            
             if audio_file_path.exists():
-                logger.info(f"Serving active stitched audio for chapter {chapter_id}: {audio_file_path} "
-                           f"(v{active_audio['version_number']}, {active_audio['file_size_bytes']} bytes, "
-                           f"{active_audio['duration_seconds']:.1f}s)")
+                actual_size = audio_file_path.stat().st_size
+                logger.info(f"   📏 Actual file size: {actual_size} bytes")
+                if actual_size != active_audio['file_size_bytes']:
+                    logger.warning(f"   ⚠️  SIZE MISMATCH: DB says {active_audio['file_size_bytes']} bytes, file is {actual_size} bytes")
                 
+                logger.info(f"✅ SERVING: {audio_file_path.name}")
                 return FileResponse(
                     audio_file_path,
                     media_type="audio/wav",
                     filename=f"chapter_{chapter_id}_v{active_audio['version_number']}.wav"
                 )
             else:
-                logger.warning(f"Database references missing file: {audio_file_path}")
+                logger.error(f"❌ FILE MISSING: Database references missing file: {audio_file_path}")
         
         # Fallback: Legacy file search (for chapters not yet migrated)
         logger.info(f"No active audio in database for chapter {chapter_id}, falling back to file search")
@@ -1546,6 +1661,137 @@ async def get_chapter_stitched_audio(chapter_id: int):
         )
     except Exception as e:
         logger.error(f"Error serving stitched audio for chapter {chapter_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/status-summary")
+async def get_chapter_status_summary(chapter_id: int):
+    """Clear, concise summary of what text and audio files are being used for a chapter"""
+    try:
+        # Get chapter info
+        chapter = chunk_db.get_chapter(chapter_id)
+        if not chapter:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        
+        # Get active audio
+        active_audio = chunk_db.get_active_chapter_audio(chapter_id)
+        
+        # Get text info
+        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
+        chunk_texts = []
+        for chunk in sorted(chunks, key=lambda c: c.chunk_number):
+            if chunk.original_text:
+                chunk_texts.append(chunk.original_text.strip())
+        full_text = ' '.join(chunk_texts) if chunk_texts else (chapter.original_text if chapter else "")
+        
+        return {
+            "chapter_id": chapter_id,
+            "chapter_info": {
+                "title": chapter.title,
+                "chapter_number": chapter.chapter_number,
+                "status": chapter.status
+            },
+            "text_source": {
+                "source": "chunks" if chunk_texts else "chapter.original_text",
+                "chunk_count": len(chunks),
+                "total_characters": len(full_text),
+                "total_words": len(full_text.split()) if full_text else 0,
+                "preview": full_text[:200] + "..." if len(full_text) > 200 else full_text
+            },
+            "audio_source": {
+                "file_path": active_audio['audio_file_path'] if active_audio else None,
+                "filename": Path(active_audio['audio_file_path']).name if active_audio else None,
+                "file_exists": Path(active_audio['audio_file_path']).exists() if active_audio else False,
+                "file_size_mb": round(active_audio['file_size_bytes'] / 1024 / 1024, 2) if active_audio else None,
+                "duration_minutes": round(active_audio['duration_seconds'] / 60, 1) if active_audio else None,
+                "version": active_audio['version_number'] if active_audio else None
+            },
+            "sync_status": {
+                "text_and_audio_match": bool(active_audio and f"chapter_{chapter.chapter_number:02d}" in active_audio['audio_file_path']),
+                "ready_for_playback": bool(active_audio and Path(active_audio['audio_file_path']).exists() and full_text)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting status summary for chapter {chapter_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/chapters/{chapter_id}/diagnostic")
+async def get_chapter_diagnostic(chapter_id: int):
+    """Comprehensive diagnostic information for a chapter"""
+    try:
+        result = {
+            "chapter_id": chapter_id,
+            "timestamp": datetime.now().isoformat(),
+            "database_info": {},
+            "audio_info": {},
+            "text_info": {},
+            "file_system_info": {}
+        }
+        
+        # Get chapter from database
+        chapter = chunk_db.get_chapter(chapter_id)
+        if chapter:
+            result["database_info"]["chapter"] = {
+                "title": chapter.title,
+                "chapter_number": chapter.chapter_number,
+                "chunks_directory": chapter.chunks_directory,
+                "total_chunks": chapter.total_chunks,
+                "completed_chunks": chapter.completed_chunks,
+                "status": chapter.status
+            }
+        else:
+            result["database_info"]["chapter"] = None
+            
+        # Get active audio info
+        active_audio = chunk_db.get_active_chapter_audio(chapter_id)
+        if active_audio:
+            audio_path = Path(active_audio['audio_file_path'])
+            result["audio_info"]["database_record"] = {
+                "file_path": str(audio_path),
+                "filename": audio_path.name,
+                "version_number": active_audio['version_number'],
+                "file_size_bytes": active_audio['file_size_bytes'],
+                "duration_seconds": active_audio['duration_seconds'],
+                "created_at": active_audio['created_at']
+            }
+            result["audio_info"]["file_exists"] = audio_path.exists()
+            if audio_path.exists():
+                result["audio_info"]["actual_file_size"] = audio_path.stat().st_size
+                result["audio_info"]["size_matches"] = audio_path.stat().st_size == active_audio['file_size_bytes']
+        else:
+            result["audio_info"]["database_record"] = None
+            
+        # Get chunks info
+        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
+        result["text_info"]["chunk_count"] = len(chunks)
+        if chunks:
+            chunk_texts = []
+            for chunk in sorted(chunks, key=lambda c: c.chunk_number):
+                if chunk.original_text:
+                    chunk_texts.append(chunk.original_text.strip())
+            
+            full_text = ' '.join(chunk_texts) if chunk_texts else (chapter.original_text if chapter else "")
+            result["text_info"]["total_characters"] = len(full_text)
+            result["text_info"]["total_words"] = len(full_text.split()) if full_text else 0
+            result["text_info"]["text_preview"] = full_text[:300] + "..." if len(full_text) > 300 else full_text
+            result["text_info"]["first_chunk_preview"] = chunks[0].original_text[:200] + "..." if chunks and chunks[0].original_text else None
+            
+        # Check for expected file based on naming pattern
+        expected_filename = f"chapter_{chapter_id:02d}_*.wav"
+        result["file_system_info"]["expected_pattern"] = expected_filename
+        
+        # Look for files matching the pattern
+        data_output_dir = Path("data/output")
+        if data_output_dir.exists():
+            matching_files = list(data_output_dir.rglob(f"chapter_{chapter_id:02d}_*.wav"))
+            result["file_system_info"]["matching_files"] = [str(f) for f in matching_files]
+        else:
+            result["file_system_info"]["matching_files"] = []
+            
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error getting diagnostic info for chapter {chapter_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/chunks/{chunk_id}/orpheus-params")

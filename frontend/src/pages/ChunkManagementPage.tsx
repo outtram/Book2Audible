@@ -394,7 +394,7 @@ export const ChunkManagementPage: React.FC = () => {
           </div>
           
           <div className="divide-y divide-primary-100">
-            {chapterStatus.chunks.map((chunk) => (
+            {chapterStatus.chunks.map((chunk, arrayIndex) => (
               <div 
                 key={chunk.chunk_id} 
                 className={`flex items-center justify-between p-4 hover:bg-primary-25 ${
@@ -515,7 +515,7 @@ export const ChunkManagementPage: React.FC = () => {
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-primary-700">
-                Chunk {textPreview.chunkId} Text Content
+                Chunk {chapterStatus.chunks.find(c => c.chunk_id === textPreview.chunkId)?.chunk_number || textPreview.chunkId} Text Content
               </h3>
               <button
                 onClick={() => setTextPreview(null)}
@@ -554,7 +554,7 @@ export const ChunkManagementPage: React.FC = () => {
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-primary-700">
-                Chunk {orpheusParams.chunkId} - Orpheus Parameters
+                Chunk {chapterStatus.chunks.find(c => c.chunk_id === orpheusParams.chunkId)?.chunk_number || orpheusParams.chunkId} - Orpheus Parameters
               </h3>
               <button
                 onClick={() => setOrpheusParams(null)}
