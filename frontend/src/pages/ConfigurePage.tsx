@@ -97,6 +97,7 @@ export const ConfigurePage: React.FC = () => {
       
       navigate(`/processing/${jobId}`);
     } catch (err: any) {
+      console.error('Conversion start failed:', err);
       setError(err.response?.data?.detail || 'Failed to start conversion');
     } finally {
       setLoading(false);

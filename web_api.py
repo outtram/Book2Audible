@@ -381,8 +381,12 @@ async def process_book_background(
         
         await update_job_status(job_id, "processing", 0.15, "Starting text processing...")
         
-        # Process the book
-        result = processor.process_book(
+        # Process the book asynchronously
+        import asyncio
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            processor.process_book,
             input_file,
             output_dir,
             manual_chapters

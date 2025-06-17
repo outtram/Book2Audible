@@ -5,7 +5,7 @@ const API_BASE = '/api';
 
 export const api = axios.create({
   baseURL: API_BASE,
-  timeout: 30000,
+  timeout: 60000, // Increased timeout for conversion start
 });
 
 export const uploadFile = async (file: File): Promise<UploadResponse> => {

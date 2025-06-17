@@ -1,0 +1,12 @@
+{
+  "cleanup_timestamp": "2025-06-16T19:19:43.505451",
+  "database_backup": "data/chunk_database_backup_20250616_191943.db",
+  "chapter_id": 7,
+  "chapter_number": 15,
+  "title": "A Pathway Towards Wholeness",
+  "total_chunks": 101,
+  "completed_chunks": 101,
+  "chunks_updated": 31,
+  "completion_percentage": 100.0,
+  "status": "SUCCESS"
+}
