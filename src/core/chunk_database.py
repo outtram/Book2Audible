@@ -481,6 +481,47 @@ class ChunkDatabase:
                     created_at=row[10], updated_at=row[11], metadata=json.loads(row[12])
                 )
         return None
+    def update_chapter(self, chapter_id: int, chapter_number: Optional[int] = None,
+                      title: Optional[str] = None) -> bool:
+        """Update chapter number and/or title"""
+        updates = []
+        params = []
+        
+        if chapter_number is not None:
+            updates.append("chapter_number = ?")
+            params.append(chapter_number)
+            
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+            
+        if not updates:
+            return False
+            
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(chapter_id)
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(f"""
+                UPDATE chapters 
+                SET {', '.join(updates)}
+                WHERE id = ?
+            """, params)
+            
+            success = cursor.rowcount > 0
+            
+        if success:
+            update_info = []
+            if chapter_number is not None:
+                update_info.append(f"number={chapter_number}")
+            if title is not None:
+                update_info.append(f"title='{title}'")
+            self.logger.info(f"Updated chapter {chapter_id}: {', '.join(update_info)}")
+        else:
+            self.logger.warning(f"Failed to update chapter {chapter_id} - chapter not found")
+            
+        return success
     
     def mark_chunk_for_reprocessing(self, chunk_id: int, reason: str = "Manual reprocess"):
         """Mark a chunk to be reprocessed"""

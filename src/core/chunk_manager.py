@@ -282,8 +282,21 @@ class ChunkManager:
         
         self.audio_processor.save_wav_file(final_audio, output_path)
         
+        # Register the new stitched audio version in the database
+        chunk_ids = [chunk.id for chunk in chunks if chunk.id not in exclude_chunk_ids]
+        processing_log = f"Restitched from {len(included_chunks)} chunks. Excluded: {len(exclude_chunk_ids)} chunks."
+        
+        version_id = self.db.create_chapter_audio_version(
+            chapter_id=chapter_id,
+            audio_file_path=str(output_path),
+            stitched_from_chunks=chunk_ids,
+            excluded_chunks=exclude_chunk_ids,
+            processing_log=processing_log
+        )
+        
         self.logger.info(f"✅ Restitched chapter audio: {output_path}")
         self.logger.info(f"📊 Included chunks: {included_chunks}")
+        self.logger.info(f"🗄️ Registered as database version {version_id}")
         if exclude_chunk_ids:
             excluded_numbers = [self.db.get_chunk(cid).chunk_number for cid in exclude_chunk_ids if self.db.get_chunk(cid)]
             self.logger.info(f"🚫 Excluded chunks: {excluded_numbers}")

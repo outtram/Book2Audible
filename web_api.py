@@ -30,6 +30,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 from src.core.processor import Book2AudioProcessor
 from src.core.config import config
 from src.utils.logger import setup_logger
+import re
 
 # Optional chunk management imports (safe fallback)
 try:
@@ -58,6 +59,12 @@ class ConversionStatus(BaseModel):
     error_message: Optional[str] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    
+    class Config:
+        # Configure JSON serialization for datetime objects
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
 
 class ChapterInfo(BaseModel):
     number: int
@@ -314,7 +321,7 @@ async def process_book_background(
         # Initialize enhanced processor with chunk tracking
         processor = EnhancedBook2AudioProcessor("INFO", provider, enable_chunk_tracking=True)
         
-        # Custom logger to capture progress
+        # Simple logger that doesn't interfere with threading
         class WebProgressLogger:
             def __init__(self, job_id: str):
                 self.job_id = job_id
@@ -322,58 +329,21 @@ async def process_book_background(
                 self.total_chapters = 0
             
             def info(self, message: str):
-                asyncio.create_task(self.handle_log_message(message))
+                # Just log to console, don't try to update job status from background thread
+                logger.info(f"[{self.job_id}] {message}")
             
             def error(self, message: str):
-                asyncio.create_task(self.handle_log_message(f"ERROR: {message}"))
+                logger.error(f"[{self.job_id}] {message}")
             
             def warning(self, message: str):
-                asyncio.create_task(self.handle_log_message(f"WARNING: {message}"))
+                logger.warning(f"[{self.job_id}] {message}")
             
             def debug(self, message: str):
-                asyncio.create_task(self.handle_log_message(f"DEBUG: {message}"))
+                logger.debug(f"[{self.job_id}] {message}")
             
             def setLevel(self, level):
                 # No-op for web logger since we want all messages
                 pass
-            
-            async def handle_log_message(self, message: str):
-                # Parse progress from log messages
-                if "Found" in message and "chapters" in message:
-                    try:
-                        parts = message.split()
-                        self.total_chapters = int(parts[1])
-                        await update_job_status(self.job_id, "processing", 0.2, f"Found {self.total_chapters} chapters")
-                    except:
-                        pass
-                
-                elif "completed successfully" in message and "%" in message:
-                    try:
-                        # Extract percentage from message like "✅ Chunk 5/24 completed successfully (20.8% done)"
-                        import re
-                        match = re.search(r'(\d+)/(\d+).*?(\d+\.\d+)%', message)
-                        if match:
-                            current_chunk = int(match.group(1))
-                            total_chunks = int(match.group(2))
-                            chapter_progress = float(match.group(3)) / 100
-                            
-                            # Calculate overall progress
-                            if self.total_chapters > 0:
-                                chapter_base_progress = (self.current_chapter / self.total_chapters) * 0.8
-                                chapter_current_progress = (chapter_progress / self.total_chapters) * 0.8
-                                overall_progress = 0.2 + chapter_base_progress + chapter_current_progress
-                                
-                                await update_job_status(
-                                    self.job_id,
-                                    "processing", 
-                                    min(overall_progress, 0.95),
-                                    f"Chapter {self.current_chapter + 1}: Processing chunk {current_chunk}/{total_chunks}"
-                                )
-                    except:
-                        pass
-                
-                elif "Processing completed!" in message:
-                    await update_job_status(self.job_id, "processing", 0.95, "Finalizing audio files...")
         
         # Set up custom logging
         web_logger = WebProgressLogger(job_id)
@@ -381,12 +351,8 @@ async def process_book_background(
         
         await update_job_status(job_id, "processing", 0.15, "Starting text processing...")
         
-        # Process the book asynchronously
-        import asyncio
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            processor.process_book,
+        # Process the book directly (not in thread executor to avoid signal handling issues)
+        result = processor.process_book(
             input_file,
             output_dir,
             manual_chapters
@@ -443,7 +409,9 @@ async def update_job_status(job_id: str, status: str, progress: float, step: str
 async def broadcast_job_update(job_id: str):
     """Broadcast job update to all connected WebSocket clients"""
     if job_id in job_websockets:
-        job_data = active_jobs[job_id].dict()
+        # Use json() method to properly serialize datetime objects, then parse back to dict
+        job_json_str = active_jobs[job_id].json()
+        job_data = json.loads(job_json_str)
         
         # Remove disconnected WebSockets
         connected_sockets = []
@@ -520,11 +488,32 @@ async def get_job_status(job_id: str):
     if restored_job:
         # Update active jobs with completed status
         active_jobs[job_id] = restored_job
-        return restored_job.dict()
+        return restored_job
     
     # Check active jobs if no completed files found
     if job_id in active_jobs:
-        return active_jobs[job_id].dict()
+        return active_jobs[job_id]
+    
+    # Check if job directory exists but has no log files (interrupted/zombie job)
+    output_dir = Path("data/output") / job_id
+    if output_dir.exists():
+        logger.info(f"Found interrupted job {job_id}, returning failed status")
+        
+        # Create a failed job status for interrupted jobs
+        failed_job = ConversionStatus(
+            job_id=job_id,
+            status="failed",
+            progress=0.0,
+            current_step="Job was interrupted",
+            chapters=[],
+            error_message="Processing was interrupted and could not be completed",
+            start_time=None,
+            end_time=datetime.now()
+        )
+        
+        # Store in active jobs for future requests
+        active_jobs[job_id] = failed_job
+        return failed_job
     
     raise HTTPException(status_code=404, detail="Job not found")
 
@@ -809,7 +798,11 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     try:
         # Send current status immediately
         if job_id in active_jobs:
-            await websocket.send_json(active_jobs[job_id].dict())
+            # Use json() method to properly serialize datetime objects, then parse back to dict
+            job_json_str = active_jobs[job_id].json()
+            job_data = json.loads(job_json_str)
+            
+            await websocket.send_json(job_data)
         
         # Keep connection alive and handle messages
         while True:
@@ -1145,6 +1138,9 @@ class InsertChunkRequest(BaseModel):
 
 class ChapterRenameRequest(BaseModel):
     custom_title: str
+class ChapterUpdateRequest(BaseModel):
+    chapter_number: Optional[int] = None
+    title: Optional[str] = None
 
 @app.post("/api/chapters/{chapter_id}/insert-chunk")
 async def insert_chunk(chapter_id: int, request: InsertChunkRequest):
@@ -1271,6 +1267,42 @@ async def rename_chapter(chapter_id: int, request: ChapterRenameRequest):
             "message": f"Chapter {chapter_id} renamed successfully",
             "new_title": request.custom_title
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@app.patch("/api/chapters/{chapter_id}")
+async def update_chapter(chapter_id: int, request: ChapterUpdateRequest):
+    """Update chapter number and/or title"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    if request.chapter_number is None and request.title is None:
+        raise HTTPException(status_code=400, detail="At least one field (chapter_number or title) must be provided")
+    
+    try:
+        success = chunk_db.update_chapter(
+            chapter_id=chapter_id,
+            chapter_number=request.chapter_number,
+            title=request.title
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Chapter not found")
+        
+        # Get updated chapter info
+        chapter = chunk_db.get_chapter(chapter_id)
+        
+        return {
+            "message": "Chapter updated successfully",
+            "chapter_id": chapter_id,
+            "chapter_number": chapter.chapter_number,
+            "title": chapter.title,
+            "updated_fields": {
+                "chapter_number": request.chapter_number is not None,
+                "title": request.title is not None
+            }
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1574,6 +1606,9 @@ async def get_chapter_stitched_audio(chapter_id: int):
         logger.info(f"🎵 AUDIO REQUEST: Chapter {chapter_id} stitched audio requested")
         logger.info(f"🔍 DEBUG: This corresponds to URL /api/chapters/{chapter_id}/stitched-audio")
         
+        # Get chunks for the chapter (needed for database registration later)
+        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
+        
         # First, try to get the active stitched audio from database
         active_audio = chunk_db.get_active_chapter_audio(chapter_id)
         
@@ -1607,38 +1642,77 @@ async def get_chapter_stitched_audio(chapter_id: int):
         # Fallback: Legacy file search (for chapters not yet migrated)
         logger.info(f"No active audio in database for chapter {chapter_id}, falling back to file search")
         
-        possible_files = []
         output_dir = Path("data/output")
-        
-        # Get first chunk's path to derive the job directory
-        chunks = chunk_db.get_chunks_by_chapter(chapter_id)
-        if chunks and chunks[0].audio_file_path:
-            chunk_path = Path(chunks[0].audio_file_path)
-            job_dir = chunk_path.parent.parent
-            if job_dir.exists():
-                possible_files.extend(list(job_dir.glob("*.wav")))
-        
-        # Search all job directories as last resort
-        for job_dir in output_dir.iterdir():
-            if job_dir.is_dir():
-                wav_files = list(job_dir.glob("*.wav"))
-                # Filter for larger files (likely stitched)
-                large_files = [f for f in wav_files if f.stat().st_size > 1000000]  # > 1MB
-                possible_files.extend(large_files)
-        
-        # Find the largest WAV file
         audio_file = None
         largest_size = 0
+
+        # Attempt 1: Find the specific stitched audio file for this job_id
+        chapter_info = chunk_db.get_chapter(chapter_id)
+        job_id = None
+        if chapter_info and chapter_info.chunks_directory:
+            # Extract job_id (UUID) from the chunks_directory path
+            # Example: data/output/d42c4da4-3aeb-41dc-94f5-c8ccafb79efe/rock-short-test-_chunks_20250621_143521
+            path_parts = Path(chapter_info.chunks_directory).parts
+            if len(path_parts) >= 3 and path_parts[0] == 'data' and path_parts[1] == 'output':
+                job_id = path_parts[2] # This should be the UUID
+            
+        if job_id:
+            job_output_dir = output_dir / job_id
+            if job_output_dir.exists():
+                # Look for files matching the pattern: [original_filename]_[timestamp].wav
+                # The original filename is usually derived from the input text file name
+                # We can try to find the largest .wav file in this specific job directory
+                job_wav_files = list(job_output_dir.glob("*.wav"))
+                for file_path in job_wav_files:
+                    if file_path.exists():
+                        try:
+                            file_size = file_path.stat().st_size
+                            if file_size > largest_size:
+                                largest_size = file_size
+                                audio_file = file_path
+                                logger.debug(f"🔍 DEBUG: Found job-specific audio file: {audio_file.name} for chapter {chapter_id}")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Warning: Could not process job-specific file {file_path.name}: {e}")
+                            continue
         
-        for file_path in possible_files:
-            if file_path.exists():
-                try:
-                    file_size = file_path.stat().st_size
-                    if file_size > largest_size:
-                        largest_size = file_size
-                        audio_file = file_path
-                except:
-                    continue
+        if audio_file: # If we found the job-specific file, use it
+            logger.info(f"✅ Found job-specific audio for chapter {chapter_id}: {audio_file}")
+        else: # Fallback to legacy search if job-specific file not found
+            logger.info(f"No job-specific audio found for chapter {chapter_id}, falling back to legacy file search.")
+            possible_files = []
+            
+            # Get first chunk's path to derive the job directory (for older structures)
+            if chunks and chunks[0].audio_file_path:
+                chunk_path = Path(chunks[0].audio_file_path)
+                # Ensure we don't re-add files from the current job_dir if it was already searched
+                if chunk_path.parent.parent.exists() and chunk_path.parent.parent != job_output_dir:
+                    possible_files.extend(list(chunk_path.parent.parent.glob("*.wav")))
+            
+            # Search all job directories as last resort (excluding the current job_output_dir)
+            for dir_entry in output_dir.iterdir():
+                if dir_entry.is_dir() and dir_entry != job_output_dir:
+                    wav_files = list(dir_entry.glob("*.wav"))
+                    # Filter for larger files (likely stitched)
+                    large_files = [f for f in wav_files if f.stat().st_size > 1000000]  # > 1MB
+                    possible_files.extend(large_files)
+            
+            # Find the largest WAV file among possible_files that matches chapter_id
+            for file_path in possible_files:
+                if file_path.exists():
+                    try:
+                        file_size = file_path.stat().st_size
+                        # Extract chapter number from filename
+                        filename_chapter_match = re.search(r'chapter_(\d+)', file_path.name)
+                        filename_chapter_id = int(filename_chapter_match.group(1)) if filename_chapter_match else None
+                        logger.debug(f"🔍 DEBUG: Considering legacy file {file_path.name} (Chapter ID from filename: {filename_chapter_id}) for requested chapter {chapter_id}")
+
+                        # Only consider files that explicitly match the requested chapter_id
+                        if file_size > largest_size and filename_chapter_id == chapter_id:
+                            largest_size = file_size
+                            audio_file = file_path
+                    except Exception as e:
+                        logger.warning(f"⚠️  Warning: Could not process legacy file {file_path.name}: {e}")
+                        continue
         
         if not audio_file:
             raise HTTPException(status_code=404, detail="Chapter stitched audio not found")

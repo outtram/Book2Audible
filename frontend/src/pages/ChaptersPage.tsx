@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getAllJobs } from '../utils/api';
-import { BookOpen, Clock, CheckCircle, Download, Eye, Settings } from 'lucide-react';
+import { BookOpen, Clock, CheckCircle, Download, Eye, Settings, Edit2, Save, X } from 'lucide-react';
 
 interface Job {
   job_id: string;
@@ -31,6 +31,9 @@ export const ChaptersPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'processed' | 'tracked'>('processed');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingChapter, setEditingChapter] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<{chapter_number: number; title: string}>({chapter_number: 0, title: ''});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'processed') {
@@ -87,6 +90,46 @@ export const ChaptersPage: React.FC = () => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}m ${remainingSeconds.toFixed(0)}s`;
+  };
+
+  const startEditing = (chapter: Chapter) => {
+    setEditingChapter(chapter.id);
+    setEditForm({
+      chapter_number: chapter.chapter_number,
+      title: chapter.title
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingChapter(null);
+    setEditForm({chapter_number: 0, title: ''});
+  };
+
+  const saveChapter = async (chapterId: number) => {
+    try {
+      setSaving(true);
+      const response = await fetch(`/api/chapters/${chapterId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(editForm),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update chapter');
+      }
+
+      // Refresh chapters list
+      await loadChapters();
+      setEditingChapter(null);
+      setEditForm({chapter_number: 0, title: ''});
+    } catch (err: any) {
+      setError('Failed to update chapter: ' + err.message);
+      console.error('Failed to update chapter:', err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {
@@ -260,12 +303,64 @@ export const ChaptersPage: React.FC = () => {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-primary-700">
-                          Chapter {chapter.chapter_number}: {chapter.title}
-                        </h3>
+                        {editingChapter === chapter.id ? (
+                          <div className="flex-1 flex items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <label className="text-sm font-medium text-primary-700">Chapter:</label>
+                              <input
+                                type="number"
+                                value={editForm.chapter_number}
+                                onChange={(e) => setEditForm({...editForm, chapter_number: parseInt(e.target.value) || 0})}
+                                className="w-20 px-2 py-1 border border-primary-300 rounded text-sm"
+                                min="0"
+                              />
+                            </div>
+                            <div className="flex-1 flex items-center gap-2">
+                              <label className="text-sm font-medium text-primary-700">Title:</label>
+                              <input
+                                type="text"
+                                value={editForm.title}
+                                onChange={(e) => setEditForm({...editForm, title: e.target.value})}
+                                className="flex-1 px-2 py-1 border border-primary-300 rounded text-sm"
+                                placeholder="Chapter title"
+                              />
+                            </div>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => saveChapter(chapter.id)}
+                                disabled={saving}
+                                className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
+                                title="Save changes"
+                              >
+                                <Save className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={cancelEditing}
+                                disabled={saving}
+                                className="p-1 text-red-600 hover:text-red-800 disabled:opacity-50"
+                                title="Cancel editing"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <h3 className="text-lg font-semibold text-primary-700">
+                              Chapter {chapter.chapter_number}: {chapter.title}
+                            </h3>
+                            <button
+                              onClick={() => startEditing(chapter)}
+                              className="p-1 text-primary-600 hover:text-primary-800"
+                              title="Edit chapter"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                          </>
+                        )}
                         <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          chapter.status === 'completed' 
-                            ? 'bg-green-100 text-green-800' 
+                          chapter.status === 'completed'
+                            ? 'bg-green-100 text-green-800'
                             : chapter.status === 'failed'
                             ? 'bg-red-100 text-red-800'
                             : 'bg-yellow-100 text-yellow-800'
