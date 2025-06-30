@@ -28,7 +28,7 @@ interface Chapter {
 export const ChaptersPage: React.FC = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [activeTab, setActiveTab] = useState<'processed' | 'tracked'>('processed');
+  const [activeTab, setActiveTab] = useState<'processed' | 'tracked'>('tracked');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingChapter, setEditingChapter] = useState<number | null>(null);
@@ -63,6 +63,11 @@ export const ChaptersPage: React.FC = () => {
       if (!response.ok) throw new Error('Failed to fetch chapters');
       const data = await response.json();
       setChapters(data.chapters);
+      
+      // Sort chapters by ID in descending order (most recent first)
+      // const sortedChapters = data.chapters.sort((a: Chapter, b: Chapter) => b.id - a.id);
+      // const sortedChapters = data.chapters.sort((a: Chapter) => a.chapter_number);
+      // setChapters(sortedChapters);
     } catch (err: any) {
       setError('Failed to load tracked chapters');
       console.error('Failed to load chapters:', err);
@@ -182,16 +187,6 @@ export const ChaptersPage: React.FC = () => {
           <div className="border-b border-primary-200">
             <nav className="-mb-px flex space-x-8">
               <button
-                onClick={() => setActiveTab('processed')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'processed'
-                    ? 'border-primary-500 text-primary-600'
-                    : 'border-transparent text-primary-500 hover:text-primary-700 hover:border-primary-300'
-                }`}
-              >
-                Processed Jobs
-              </button>
-              <button
                 onClick={() => setActiveTab('tracked')}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
                   activeTab === 'tracked'
@@ -200,6 +195,16 @@ export const ChaptersPage: React.FC = () => {
                 }`}
               >
                 Tracked Chapters
+              </button>
+              <button
+                onClick={() => setActiveTab('processed')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'processed'
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-primary-500 hover:text-primary-700 hover:border-primary-300'
+                }`}
+              >
+                Processed Jobs
               </button>
             </nav>
           </div>

@@ -213,8 +213,11 @@ class ChunkManager:
                 'has_audio': bool(chunk.audio_file_path and Path(chunk.audio_file_path).exists()),
                 'text_length': len(chunk.original_text),
                 'word_count': len(chunk.original_text.split()),
-                'needs_attention': chunk.status in ['failed', 'needs_reprocess'] or 
-                                 (chunk.verification_score and chunk.verification_score < 0.85)
+                'needs_attention': chunk.status in ['failed', 'needs_reprocess'] or
+                                 (chunk.verification_score and chunk.verification_score < 0.85),
+                'audio_file_path': chunk.audio_file_path,
+                'position_start': chunk.position_start,
+                'position_end': chunk.position_end
             }
             chunk_status.append(status_info)
         

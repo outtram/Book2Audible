@@ -1975,6 +1975,70 @@ async def _reprocess_chunk_with_enhanced_params(chunk_id: int, params: Dict[str,
             error_message=str(e)
         )
 
+@app.post("/api/chunks/{chunk_id}/update-from-file")
+async def update_chunk_from_file(chunk_id: int):
+    """Update chunk's original_text and cleaned_text from the text file on disk"""
+    if not CHUNK_MANAGEMENT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Chunk management features not available")
+    
+    try:
+        import sqlite3
+        with sqlite3.connect(chunk_db.db_path) as conn:
+            # Get the text file path for this chunk
+            cursor = conn.execute("SELECT text_file_path FROM chunks WHERE id = ?", (chunk_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                raise HTTPException(status_code=404, detail="Chunk not found")
+            
+            text_file_path = row[0]
+            
+            if not text_file_path or not Path(text_file_path).exists():
+                raise HTTPException(status_code=404, detail="Text file not found on disk")
+            
+            # Read the latest text from the file
+            try:
+                with open(text_file_path, 'r', encoding='utf-8') as f:
+                    latest_text = f.read().strip()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to read text file: {str(e)}")
+            
+            if not latest_text:
+                raise HTTPException(status_code=400, detail="Text file is empty")
+            
+            # Update both original_text and cleaned_text in the database
+            # For now, we'll set both to the same value since the file contains the latest version
+            update_time = datetime.now().isoformat()
+            conn.execute("""
+                UPDATE chunks
+                SET original_text = ?, cleaned_text = ?, updated_at = ?
+                WHERE id = ?
+            """, (latest_text, latest_text, update_time, chunk_id))
+            
+            conn.commit()
+            
+            # Get updated chunk info
+            cursor = conn.execute("""
+                SELECT chunk_number, LENGTH(original_text) as text_length
+                FROM chunks WHERE id = ?
+            """, (chunk_id,))
+            chunk_info = cursor.fetchone()
+            
+            return {
+                "message": f"Successfully updated chunk {chunk_id} from file",
+                "chunk_id": chunk_id,
+                "chunk_number": chunk_info[0] if chunk_info else None,
+                "text_length": chunk_info[1] if chunk_info else 0,
+                "file_path": text_file_path,
+                "updated_at": update_time
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update chunk {chunk_id} from file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Serve the React frontend (will be built later)
 @app.get("/app", response_class=HTMLResponse)
 async def serve_frontend():
